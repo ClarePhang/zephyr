@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <stddef.h>
 #include <string.h>
 #include <errno.h>
@@ -22,18 +22,18 @@
 #include <bluetooth/uuid.h>
 #include <bluetooth/gatt.h>
 
-static struct bt_gatt_ccc_cfg  blvl_ccc_cfg[CONFIG_BLUETOOTH_MAX_PAIRED] = {};
-static uint8_t simulate_blvl;
-static uint8_t battery = 100;
+static struct bt_gatt_ccc_cfg  blvl_ccc_cfg[BT_GATT_CCC_MAX] = {};
+static u8_t simulate_blvl;
+static u8_t battery = 100U;
 
 static void blvl_ccc_cfg_changed(const struct bt_gatt_attr *attr,
-				 uint16_t value)
+				 u16_t value)
 {
 	simulate_blvl = (value == BT_GATT_CCC_NOTIFY) ? 1 : 0;
 }
 
 static ssize_t read_blvl(struct bt_conn *conn, const struct bt_gatt_attr *attr,
-			 void *buf, uint16_t len, uint16_t offset)
+			 void *buf, u16_t len, u16_t offset)
 {
 	const char *value = attr->user_data;
 
@@ -45,15 +45,16 @@ static ssize_t read_blvl(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 static struct bt_gatt_attr attrs[] = {
 	BT_GATT_PRIMARY_SERVICE(BT_UUID_BAS),
 	BT_GATT_CHARACTERISTIC(BT_UUID_BAS_BATTERY_LEVEL,
-			       BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY),
-	BT_GATT_DESCRIPTOR(BT_UUID_BAS_BATTERY_LEVEL, BT_GATT_PERM_READ,
-			   read_blvl, NULL, &battery),
+			       BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY,
+			       BT_GATT_PERM_READ, read_blvl, NULL, &battery),
 	BT_GATT_CCC(blvl_ccc_cfg, blvl_ccc_cfg_changed),
 };
 
+static struct bt_gatt_service bas_svc = BT_GATT_SERVICE(attrs);
+
 void bas_init(void)
 {
-	bt_gatt_register(attrs, ARRAY_SIZE(attrs));
+	bt_gatt_service_register(&bas_svc);
 }
 
 void bas_notify(void)
@@ -65,8 +66,8 @@ void bas_notify(void)
 	battery--;
 	if (!battery) {
 		/* Software eco battery charger */
-		battery = 100;
+		battery = 100U;
 	}
 
-	bt_gatt_notify(NULL, &attrs[2], &battery, sizeof(battery));
+	bt_gatt_notify(NULL, &attrs[1], &battery, sizeof(battery));
 }

@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __SENSOR_ADXL362_H__
-#define __SENSOR_ADXL362_H__
+#ifndef ZEPHYR_DRIVERS_SENSOR_ADXL362_ADXL362_H_
+#define ZEPHYR_DRIVERS_SENSOR_ADXL362_ADXL362_H_
 
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <device.h>
 
 #define ADXL362_SLAVE_ID    1
@@ -154,14 +154,20 @@
 /* ADXL362 Reset settings */
 #define ADXL362_RESET_KEY               0x52
 
+struct adxl362_config {
+	char *spi_name;
+	u32_t spi_max_frequency;
+	u16_t spi_slave;
+};
+
 struct adxl362_data {
 	struct device *spi;
-	int32_t acc_x;
-	int32_t acc_y;
-	int32_t acc_z;
-	int32_t temp;
-	uint8_t spi_slave;
-	uint8_t selected_range;
+	struct spi_config spi_cfg;
+	s32_t acc_x;
+	s32_t acc_y;
+	s32_t acc_z;
+	s32_t temp;
+	u8_t selected_range;
 };
 
 #if defined(CONFIG_ADXL362_ACCEL_RANGE_RUNTIME) ||\
@@ -188,7 +194,4 @@ struct adxl362_data {
 #	define ADXL362_DEFAULT_ODR_ACC		ADXL362_ODR_400_HZ
 #endif
 
-#define SYS_LOG_DOMAIN "ADXL362"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-#endif /* __SENSOR_ADXL362_H__ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_ADXL362_ADXL362_H_ */

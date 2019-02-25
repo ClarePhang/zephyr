@@ -12,28 +12,24 @@
  */
 
 #include <zephyr.h>
+#include <stdlib.h>
 #include <timestamp.h>  /* reading time */
 #include "utils.h"      /* PRINT () and other macros */
-
-/* <stdlib.h> is not supported */
-static int abs(int i)
-{
-	return (i >= 0) ? i : -i;
-}
 
 /* context switch enough time so our measurement is precise */
 #define NB_OF_YIELD     1000
 
-static uint32_t helper_thread_iterations;
+static u32_t helper_thread_iterations;
 
-#define Y_STACK_SIZE    512
+#define Y_STACK_SIZE    (512 + CONFIG_TEST_EXTRA_STACKSIZE)
 #define Y_PRIORITY      10
 
-char __noinit __stack y_stack_area[Y_STACK_SIZE];
+K_THREAD_STACK_DEFINE(y_stack_area, Y_STACK_SIZE);
+static struct k_thread y_thread;
 
 /**
  *
- * @brief Helper thread for measuring thread switeh latency using yield
+ * @brief Helper thread for measuring thread switch latency using yield
  *
  * @return N/A
  */
@@ -53,9 +49,9 @@ void yielding_thread(void *arg1, void *arg2, void *arg3)
  */
 void thread_switch_yield(void)
 {
-	uint32_t iterations = 0;
-	int32_t delta;
-	uint32_t timestamp;
+	u32_t iterations = 0U;
+	s32_t delta;
+	u32_t timestamp;
 
 	PRINT_FORMAT(" 5 - Measure average context switch time between threads"
 		     " using (k_yield)");
@@ -63,8 +59,9 @@ void thread_switch_yield(void)
 	bench_test_start();
 
 	/* launch helper thread of the same priority than this routine */
-	k_thread_spawn(y_stack_area, Y_STACK_SIZE, yielding_thread, NULL, NULL, NULL,
-		       Y_PRIORITY, 0, K_NO_WAIT);
+	k_thread_create(&y_thread, y_stack_area, Y_STACK_SIZE,
+			yielding_thread, NULL, NULL, NULL,
+			Y_PRIORITY, 0, K_NO_WAIT);
 
 	/* get initial timestamp */
 	timestamp = TIME_STAMP_DELTA_GET(0);

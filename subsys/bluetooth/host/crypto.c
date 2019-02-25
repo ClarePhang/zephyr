@@ -15,22 +15,23 @@
 #include <bluetooth/hci.h>
 #include <bluetooth/conn.h>
 
-#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BLUETOOTH_DEBUG_HCI_CORE)
-#include <bluetooth/log.h>
-
-#include "hci_core.h"
-
 #include <tinycrypt/constants.h>
 #include <tinycrypt/hmac_prng.h>
 #include <tinycrypt/aes.h>
 #include <tinycrypt/utils.h>
 
+#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_HCI_CORE)
+#define LOG_MODULE_NAME bt_crypto
+#include "common/log.h"
+
+#include "hci_core.h"
+
 static struct tc_hmac_prng_struct prng;
 
 static int prng_reseed(struct tc_hmac_prng_struct *h)
 {
-	uint8_t seed[32];
-	int64_t extra;
+	u8_t seed[32];
+	s64_t extra;
 	int ret, i;
 
 	for (i = 0; i < (sizeof(seed) / 8); i++) {
@@ -50,7 +51,7 @@ static int prng_reseed(struct tc_hmac_prng_struct *h)
 
 	extra = k_uptime_get();
 
-	ret = tc_hmac_prng_reseed(h, seed, sizeof(seed), (uint8_t *)&extra,
+	ret = tc_hmac_prng_reseed(h, seed, sizeof(seed), (u8_t *)&extra,
 				  sizeof(extra));
 	if (ret == TC_CRYPTO_FAIL) {
 		BT_ERR("Failed to re-seed PRNG");
@@ -65,6 +66,11 @@ int prng_init(void)
 	struct bt_hci_rp_le_rand *rp;
 	struct net_buf *rsp;
 	int ret;
+
+	/* Check first that HCI_LE_Rand is supported */
+	if (!BT_CMD_TEST(bt_dev.supported_commands, 27, 7)) {
+		return -ENOTSUP;
+	}
 
 	ret = bt_hci_cmd_send_sync(BT_HCI_OP_LE_RAND, NULL, &rsp);
 	if (ret) {
@@ -107,11 +113,11 @@ int bt_rand(void *buf, size_t len)
 	return -EIO;
 }
 
-int bt_encrypt_le(const uint8_t key[16], const uint8_t plaintext[16],
-		  uint8_t enc_data[16])
+int bt_encrypt_le(const u8_t key[16], const u8_t plaintext[16],
+		  u8_t enc_data[16])
 {
 	struct tc_aes_key_sched_struct s;
-	uint8_t tmp[16];
+	u8_t tmp[16];
 
 	BT_DBG("key %s plaintext %s", bt_hex(key, 16), bt_hex(plaintext, 16));
 
@@ -134,8 +140,8 @@ int bt_encrypt_le(const uint8_t key[16], const uint8_t plaintext[16],
 	return 0;
 }
 
-int bt_encrypt_be(const uint8_t key[16], const uint8_t plaintext[16],
-		  uint8_t enc_data[16])
+int bt_encrypt_be(const u8_t key[16], const u8_t plaintext[16],
+		  u8_t enc_data[16])
 {
 	struct tc_aes_key_sched_struct s;
 

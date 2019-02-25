@@ -9,7 +9,7 @@
 #include <errno.h>
 
 #include <kernel.h>
-#include <board.h>
+#include <soc.h>
 #include <init.h>
 #include <sys_io.h>
 #include <misc/util.h>
@@ -17,8 +17,9 @@
 #include "gpio_sch.h"
 #include "gpio_utils.h"
 
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_GPIO_LEVEL
-#include <logging/sys_log.h>
+#define LOG_LEVEL CONFIG_GPIO_LOG_LEVEL
+#include <logging/log.h>
+LOG_MODULE_REGISTER(gpio_sch);
 
 /* Define GPIO_SCH_LEGACY_IO_PORTS_ACCESS
  * inside soc.h if the GPIO controller
@@ -38,12 +39,12 @@
 #endif /* GPIO_SCH_LEGACY_IO_PORTS_ACCESS */
 
 #define DEFINE_MM_REG_READ(__reg, __off)                                \
-	static inline uint32_t _read_##__reg(uint32_t addr)             \
+	static inline u32_t _read_##__reg(u32_t addr)             \
 	{                                                               \
 		return _REG_READ(addr + __off);                         \
 	}
 #define DEFINE_MM_REG_WRITE(__reg, __off)                               \
-	static inline void _write_##__reg(uint32_t data, uint32_t addr) \
+	static inline void _write_##__reg(u32_t data, u32_t addr) \
 	{                                                               \
 		_REG_WRITE(data, addr + __off);                         \
 	}
@@ -55,8 +56,8 @@ DEFINE_MM_REG_WRITE(gtne, GPIO_SCH_REG_GTNE)
 DEFINE_MM_REG_READ(gts, GPIO_SCH_REG_GTS)
 DEFINE_MM_REG_WRITE(gts, GPIO_SCH_REG_GTS)
 
-static void _set_bit(uint32_t base_addr,
-		     uint32_t bit, uint8_t set)
+static void _set_bit(u32_t base_addr,
+		     u32_t bit, u8_t set)
 {
 	if (!set) {
 		_REG_CLEAR_BIT(base_addr, bit);
@@ -66,8 +67,8 @@ static void _set_bit(uint32_t base_addr,
 }
 
 #define DEFINE_MM_REG_SET_BIT(__reg, __off)                             \
-	static inline void _set_bit_##__reg(uint32_t addr,              \
-					    uint32_t bit, uint8_t set)  \
+	static inline void _set_bit_##__reg(u32_t addr,              \
+					    u32_t bit, u8_t set)  \
 	{                                                               \
 		_set_bit(addr + __off, bit, set);                       \
 	}
@@ -78,31 +79,34 @@ DEFINE_MM_REG_SET_BIT(glvl, GPIO_SCH_REG_GLVL)
 DEFINE_MM_REG_SET_BIT(gtpe, GPIO_SCH_REG_GTPE)
 DEFINE_MM_REG_SET_BIT(gtne, GPIO_SCH_REG_GTNE)
 
-static inline void _set_data_reg(uint32_t *reg, uint8_t pin, uint8_t set)
+static inline void _set_data_reg(u32_t *reg, u8_t pin, u8_t set)
 {
 	*reg &= ~(BIT(pin));
 	*reg |= (set << pin) & BIT(pin);
 }
 
-static void _gpio_pin_config(struct device *dev, uint32_t pin, int flags)
+static void _gpio_pin_config(struct device *dev, u32_t pin, int flags)
 {
 	const struct gpio_sch_config *info = dev->config->config_info;
 	struct gpio_sch_data *gpio = dev->driver_data;
-	uint8_t active_high = 0;
-	uint8_t active_low = 0;
+	u8_t active_high = 0U;
+	u8_t active_low = 0U;
 
 	_set_bit_gen(info->regs, pin, 1);
 	_set_bit_gio(info->regs, pin, !(flags & GPIO_DIR_MASK));
 
 	if (flags & GPIO_INT) {
-		if (flags & GPIO_INT_ACTIVE_HIGH) {
-			active_high = 1;
+		if (flags & GPIO_INT_DOUBLE_EDGE) {
+			active_high = 1U;
+			active_low = 1U;
+		} else if (flags & GPIO_INT_ACTIVE_HIGH) {
+			active_high = 1U;
 		} else {
-			active_low = 1;
+			active_low = 1U;
 		}
 
-		SYS_LOG_DBG("Setting up pin %d to active_high %d and "
-			    "active_low %d", active_high, active_low);
+		LOG_DBG("Setting up pin %d to active_high %d and "
+			"active_low %d", pin, active_high, active_low);
 	}
 
 	/* We store the gtpe/gtne settings. These will be used once
@@ -123,9 +127,17 @@ static inline void _gpio_port_config(struct device *dev, int flags)
 }
 
 static int gpio_sch_config(struct device *dev,
-			   int access_op, uint32_t pin, int flags)
+			   int access_op, u32_t pin, int flags)
 {
 	const struct gpio_sch_config *info = dev->config->config_info;
+
+	/* Do some sanity check first */
+	if (flags & GPIO_INT) {
+		if (!(flags & GPIO_INT_EDGE)) {
+			/* controller does not support level trigger */
+			return -EINVAL;
+		}
+	}
 
 	if (access_op == GPIO_ACCESS_BY_PIN) {
 		if (pin >= info->bits) {
@@ -141,7 +153,7 @@ static int gpio_sch_config(struct device *dev,
 }
 
 static int gpio_sch_write(struct device *dev,
-			  int access_op, uint32_t pin, uint32_t value)
+			  int access_op, u32_t pin, u32_t value)
 {
 	const struct gpio_sch_config *info = dev->config->config_info;
 
@@ -159,7 +171,7 @@ static int gpio_sch_write(struct device *dev,
 }
 
 static int gpio_sch_read(struct device *dev,
-			 int access_op, uint32_t pin, uint32_t *value)
+			 int access_op, u32_t pin, u32_t *value)
 {
 	const struct gpio_sch_config *info = dev->config->config_info;
 
@@ -189,7 +201,7 @@ static void _gpio_sch_poll_status(void *arg1, void *unused1, void *unused2)
 	_write_gts(_read_gts(info->regs), info->regs);
 
 	while (gpio->poll) {
-		uint32_t status;
+		u32_t status;
 
 		status = _read_gts(info->regs);
 		if (!status) {
@@ -212,19 +224,20 @@ static void _gpio_sch_manage_callback(struct device *dev)
 {
 	struct gpio_sch_data *gpio = dev->driver_data;
 
-	/* Start the fiber only when relevant */
+	/* Start the thread only when relevant */
 	if (!sys_slist_is_empty(&gpio->callbacks) && gpio->cb_enabled) {
 		if (!gpio->poll) {
-			SYS_LOG_DBG("Starting SCH GPIO polling fiber");
-			gpio->poll = 1;
-			k_thread_spawn(gpio->polling_stack,
-				       GPIO_SCH_POLLING_STACK_SIZE,
-				       (k_thread_entry_t)_gpio_sch_poll_status,
-				       dev, NULL, NULL,
-				       K_PRIO_COOP(1), 0, 0);
+			LOG_DBG("Starting SCH GPIO polling thread");
+			gpio->poll = 1U;
+			k_thread_create(&gpio->polling_thread,
+					gpio->polling_stack,
+					GPIO_SCH_POLLING_STACK_SIZE,
+					(k_thread_entry_t)_gpio_sch_poll_status,
+					dev, NULL, NULL,
+					K_PRIO_COOP(1), 0, 0);
 		}
 	} else {
-		gpio->poll = 0;
+		gpio->poll = 0U;
 	}
 }
 
@@ -233,7 +246,9 @@ static int gpio_sch_manage_callback(struct device *dev,
 {
 	struct gpio_sch_data *gpio = dev->driver_data;
 
-	_gpio_manage_callback(&gpio->callbacks, callback, set);
+	if (_gpio_manage_callback(&gpio->callbacks, callback, set)) {
+		return -EINVAL;
+	}
 
 	_gpio_sch_manage_callback(dev);
 
@@ -241,13 +256,13 @@ static int gpio_sch_manage_callback(struct device *dev,
 }
 
 static int gpio_sch_enable_callback(struct device *dev,
-				    int access_op, uint32_t pin)
+				    int access_op, u32_t pin)
 {
 	const struct gpio_sch_config *info = dev->config->config_info;
 	struct gpio_sch_data *gpio = dev->driver_data;
 
 	if (access_op == GPIO_ACCESS_BY_PIN) {
-		uint32_t bits = BIT(pin);
+		u32_t bits = BIT(pin);
 
 		if (pin >= info->bits) {
 			return -ENOTSUP;
@@ -270,7 +285,7 @@ static int gpio_sch_enable_callback(struct device *dev,
 }
 
 static int gpio_sch_disable_callback(struct device *dev,
-				     int access_op, uint32_t pin)
+				     int access_op, u32_t pin)
 {
 	const struct gpio_sch_config *info = dev->config->config_info;
 	struct gpio_sch_data *gpio = dev->driver_data;
@@ -288,7 +303,7 @@ static int gpio_sch_disable_callback(struct device *dev,
 		_write_gtpe(0, info->regs);
 		_write_gtne(0, info->regs);
 
-		gpio->cb_enabled = 0;
+		gpio->cb_enabled = 0U;
 	}
 
 	_gpio_sch_manage_callback(dev);
@@ -309,11 +324,9 @@ static int gpio_sch_init(struct device *dev)
 {
 	struct gpio_sch_data *gpio = dev->driver_data;
 
-	dev->driver_api = &gpio_sch_api;
-
 	k_timer_init(&gpio->poll_timer, NULL, NULL);
 
-	SYS_LOG_DBG("SCH GPIO Intel Driver initialized on device: %p", dev);
+	LOG_DBG("SCH GPIO Intel Driver initialized on device: %p", dev);
 
 	return 0;
 }
@@ -327,9 +340,9 @@ static const struct gpio_sch_config gpio_sch_0_config = {
 
 static struct gpio_sch_data gpio_data_0;
 
-DEVICE_INIT(gpio_0, CONFIG_GPIO_SCH_0_DEV_NAME, gpio_sch_init,
+DEVICE_AND_API_INIT(gpio_0, CONFIG_GPIO_SCH_0_DEV_NAME, gpio_sch_init,
 	    &gpio_data_0, &gpio_sch_0_config,
-	    POST_KERNEL, CONFIG_GPIO_SCH_INIT_PRIORITY);
+	    POST_KERNEL, CONFIG_GPIO_SCH_INIT_PRIORITY, &gpio_sch_api);
 
 #endif /* CONFIG_GPIO_SCH_0 */
 #if CONFIG_GPIO_SCH_1
@@ -341,8 +354,8 @@ static const struct gpio_sch_config gpio_sch_1_config = {
 
 static struct gpio_sch_data gpio_data_1;
 
-DEVICE_INIT(gpio_1, CONFIG_GPIO_SCH_1_DEV_NAME, gpio_sch_init,
+DEVICE_AND_API_INIT(gpio_1, CONFIG_GPIO_SCH_1_DEV_NAME, gpio_sch_init,
 	    &gpio_data_1, &gpio_sch_1_config,
-	    POST_KERNEL, CONFIG_GPIO_SCH_INIT_PRIORITY);
+	    POST_KERNEL, CONFIG_GPIO_SCH_INIT_PRIORITY, &gpio_sch_api);
 
 #endif /* CONFIG_GPIO_SCH_1 */

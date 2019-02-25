@@ -11,10 +11,16 @@
 #include <sensor.h>
 #include <gpio.h>
 #include <misc/util.h>
+
 #include "sx9500.h"
 
+#define LOG_LEVEL CONFIG_SENSOR_LOG_LEVEL
+#include <logging/log.h>
+LOG_MODULE_DECLARE(SX9500);
+
 #ifdef CONFIG_SX9500_TRIGGER_OWN_THREAD
-static char __stack sx9500_thread_stack[CONFIG_SX9500_THREAD_STACK_SIZE];
+static K_THREAD_STACK_DEFINE(sx9500_thread_stack, CONFIG_SX9500_THREAD_STACK_SIZE);
+static struct k_thread sx9500_thread;
 #endif
 
 int sx9500_trigger_set(struct device *dev,
@@ -58,7 +64,7 @@ int sx9500_trigger_set(struct device *dev,
 #ifdef CONFIG_SX9500_TRIGGER_OWN_THREAD
 
 static void sx9500_gpio_cb(struct device *port,
-			   struct gpio_callback *cb, uint32_t pins)
+			   struct gpio_callback *cb, u32_t pins)
 {
 	struct sx9500_data *data =
 		CONTAINER_OF(cb, struct sx9500_data, gpio_cb);
@@ -72,7 +78,7 @@ static void sx9500_thread_main(int arg1, int unused)
 {
 	struct device *dev = INT_TO_POINTER(arg1);
 	struct sx9500_data *data = dev->driver_data;
-	uint8_t reg_val;
+	u8_t reg_val;
 
 	ARG_UNUSED(unused);
 
@@ -81,7 +87,7 @@ static void sx9500_thread_main(int arg1, int unused)
 
 		if (i2c_reg_read_byte(data->i2c_master, data->i2c_slave_addr,
 					SX9500_REG_IRQ_SRC, &reg_val) < 0) {
-			SYS_LOG_DBG("sx9500: error reading IRQ source register");
+			LOG_DBG("sx9500: error reading IRQ source register");
 			continue;
 		}
 
@@ -98,7 +104,7 @@ static void sx9500_thread_main(int arg1, int unused)
 #else /* CONFIG_SX9500_TRIGGER_GLOBAL_THREAD */
 
 static void sx9500_gpio_cb(struct device *port,
-			   struct gpio_callback *cb, uint32_t pins)
+			   struct gpio_callback *cb, u32_t pins)
 {
 	struct sx9500_data *data =
 		CONTAINER_OF(cb, struct sx9500_data, gpio_cb);
@@ -112,11 +118,11 @@ static void sx9500_gpio_thread_cb(void *arg)
 {
 	struct device *dev = arg;
 	struct sx9500_data *data = dev->driver_data;
-	uint8_t reg_val;
+	u8_t reg_val;
 
 	if (i2c_reg_read_byte(data->i2c_master, data->i2c_slave_addr,
 			      SX9500_REG_IRQ_SRC, &reg_val) < 0) {
-		SYS_LOG_DBG("sx9500: error reading IRQ source register");
+		LOG_DBG("sx9500: error reading IRQ source register");
 		return;
 	}
 
@@ -154,7 +160,7 @@ int sx9500_setup_interrupt(struct device *dev)
 
 	gpio = device_get_binding(CONFIG_SX9500_GPIO_CONTROLLER);
 	if (!gpio) {
-		SYS_LOG_DBG("sx9500: gpio controller %s not found",
+		LOG_DBG("sx9500: gpio controller %s not found",
 			    CONFIG_SX9500_GPIO_CONTROLLER);
 		return -EINVAL;
 	}
@@ -171,9 +177,10 @@ int sx9500_setup_interrupt(struct device *dev)
 	gpio_pin_enable_callback(gpio, CONFIG_SX9500_GPIO_PIN);
 
 #ifdef CONFIG_SX9500_TRIGGER_OWN_THREAD
-	k_thread_spawn(sx9500_thread_stack, CONFIG_SX9500_THREAD_STACK_SIZE,
-			  sx9500_thread_main, POINTER_TO_INT(dev), 0, NULL,
-			  K_PRIO_COOP(CONFIG_SX9500_THREAD_PRIORITY), 0, 0);
+	k_thread_create(&sx9500_thread, sx9500_thread_stack,
+			CONFIG_SX9500_THREAD_STACK_SIZE,
+			(k_thread_entry_t)sx9500_thread_main, dev, 0, NULL,
+			K_PRIO_COOP(CONFIG_SX9500_THREAD_PRIORITY), 0, 0);
 #endif
 
 	return 0;

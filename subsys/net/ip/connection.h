@@ -13,13 +13,13 @@
 #ifndef __CONNECTION_H
 #define __CONNECTION_H
 
-#include <stdint.h>
+#include <zephyr/types.h>
 
 #include <misc/util.h>
 
 #include <net/net_core.h>
 #include <net/net_ip.h>
-#include <net/nbuf.h>
+#include <net/net_pkt.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,7 +35,9 @@ struct net_conn_handle;
  * and port.
  */
 typedef enum net_verdict (*net_conn_cb_t)(struct net_conn *conn,
-					  struct net_buf *buf,
+					  struct net_pkt *pkt,
+					  union net_ip_header *ip_hdr,
+					  union net_proto_header *proto_hdr,
 					  void *user_data);
 
 /**
@@ -58,10 +60,13 @@ struct net_conn {
 	void *user_data;
 
 	/** Connection protocol */
-	uint8_t proto;
+	u16_t proto;
+
+	/** Protocol family */
+	u8_t family;
 
 	/** Flags for the connection */
-	uint8_t flags;
+	u8_t flags;
 
 	/** Rank of this connection. Higher rank means more specific
 	 * connection.
@@ -73,14 +78,15 @@ struct net_conn {
 	 *   bit 4  local address, bit set if specific address
 	 *   bit 5  remote address, bit set if specific address
 	 */
-	uint8_t rank;
+	u8_t rank;
 };
 
 /**
  * @brief Register a callback to be called when UDP/TCP packet
  * is received corresponding to received packet.
  *
- * @param proto Protocol for the connection (UDP or TCP)
+ * @param proto Protocol for the connection (UDP or TCP or SOCK_RAW)
+ * @param family Protocol family (AF_INET or AF_INET6 or AF_PACKET)
  * @param remote_addr Remote address of the connection end point.
  * @param local_addr Local address of the connection end point.
  * @param remote_port Remote port of the connection end point.
@@ -91,11 +97,11 @@ struct net_conn {
  *
  * @return Return 0 if the registration succeed, <0 otherwise.
  */
-int net_conn_register(enum net_ip_protocol proto,
+int net_conn_register(u16_t proto, u8_t family,
 		      const struct sockaddr *remote_addr,
 		      const struct sockaddr *local_addr,
-		      uint16_t remote_port,
-		      uint16_t local_port,
+		      u16_t remote_port,
+		      u16_t local_port,
 		      net_conn_cb_t cb,
 		      void *user_data,
 		      struct net_conn_handle **handle);
@@ -125,23 +131,48 @@ int net_conn_change_callback(struct net_conn_handle *handle,
 /**
  * @brief Called by net_core.c when a network packet is received.
  *
- * @param buf Network buffer holding received data
+ * @param pkt Network packet holding received data
+ * @param proto Protocol for the connection
  *
  * @return NET_OK if the packet was consumed, NET_DROP if
  * the packet parsing failed and the caller should handle
  * the received packet. If corresponding IP protocol support is
  * disabled, the function will always return NET_DROP.
  */
-#if defined(CONFIG_NET_UDP) || defined(CONFIG_NET_TCP)
-enum net_verdict net_conn_input(enum net_ip_protocol proto,
-				struct net_buf *buf);
+#if defined(CONFIG_NET_UDP) || defined(CONFIG_NET_TCP) || \
+	defined(CONFIG_NET_SOCKETS_PACKET) || defined(CONFIG_NET_SOCKETS_CAN)
+enum net_verdict net_conn_input(struct net_pkt *pkt,
+				union net_ip_header *ip_hdr,
+				u8_t proto,
+				union net_proto_header *proto_hdr);
 #else
-static inline enum net_verdict net_conn_input(enum net_ip_protocol proto,
-					      struct net_buf *buf)
+static inline enum net_verdict net_conn_input(struct net_pkt *pkt,
+					      union net_ip_header *ip_hdr,
+					      u8_t proto,
+					      union net_proto_header *proto_hdr)
 {
 	return NET_DROP;
 }
-#endif /* CONFIG_NET_UDP || CONFIG_NET_TCP */
+#endif /* CONFIG_NET_UDP || CONFIG_NET_TCP  || CONFIG_NET_SOCKETS_PACKET */
+
+/**
+ * @typedef net_conn_foreach_cb_t
+ * @brief Callback used while iterating over network connection
+ * handlers.
+ *
+ * @param conn A valid pointer on current network connection handler.
+ * @param user_data A valid pointer on some user data or NULL
+ */
+typedef void (*net_conn_foreach_cb_t)(struct net_conn *conn, void *user_data);
+
+/**
+ * @brief Go through all the network connection handlers and call callback
+ * for each network connection handler.
+ *
+ * @param cb User supplied callback function to call.
+ * @param user_data User specified data.
+ */
+void net_conn_foreach(net_conn_foreach_cb_t cb, void *user_data);
 
 void net_conn_init(void);
 

@@ -21,12 +21,12 @@
  * @}
  */
 
-#include <test_rtc.h>
+#include "test_rtc.h"
 
 static int test_task(void)
 {
-	uint32_t val_1 = 0;
-	uint32_t val_2 = 0;
+	u32_t val_1 = 0U;
+	u32_t val_2 = 0U;
 	struct device *rtc = device_get_binding(RTC_DEVICE_NAME);
 
 	if (!rtc) {
@@ -42,7 +42,7 @@ static int test_task(void)
 	k_sleep(2000);
 	val_2 = rtc_read(rtc);
 
-	TC_PRINT("val_1: %u, val_2: %u, delta: %lu:%lu\n",
+	TC_PRINT("val_1: %u, val_2: %u, delta: %u:%u\n",
 		 val_1, val_2,
 		 (val_2 - val_1) / RTC_ALARM_SECOND,
 		 (val_2 - val_1) % RTC_ALARM_SECOND);
@@ -69,5 +69,5 @@ static int test_task(void)
 
 void test_rtc_calendar(void)
 {
-	assert_true((test_task() == TC_PASS), NULL);
+	zassert_true((test_task() == TC_PASS), NULL);
 }

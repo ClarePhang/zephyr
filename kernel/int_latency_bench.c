@@ -8,7 +8,7 @@
 
 #include "toolchain.h"
 #include "sections.h"
-#include <stdint.h>	    /* uint32_t */
+#include <zephyr/types.h>	    /* u32_t */
 #include <limits.h>	    /* ULONG_MAX */
 #include <misc/printk.h> /* printk */
 #include <sys_clock.h>
@@ -20,25 +20,25 @@
  * Timestamp corresponding to when interrupt were turned off.
  * A value of zero indicated interrupt are not currently locked.
  */
-static uint32_t int_locked_timestamp;
+static u32_t int_locked_timestamp;
 
 /* stats tracking the minimum and maximum time when interrupts were locked */
-static uint32_t int_locked_latency_min = ULONG_MAX;
-static uint32_t int_locked_latency_max;
+static u32_t int_locked_latency_min = ULONG_MAX;
+static u32_t int_locked_latency_max;
 
 /* overhead added to intLock/intUnlock by this latency benchmark */
-static uint32_t initial_start_delay;
-static uint32_t nesting_delay;
-static uint32_t stop_delay;
+static u32_t initial_start_delay;
+static u32_t nesting_delay;
+static u32_t stop_delay;
 
 /* counter tracking intLock/intUnlock calls once interrupt are locked */
-static uint32_t int_lock_unlock_nest;
+static u32_t int_lock_unlock_nest;
 
 /* indicate if the interrupt latency benchamrk is ready to be used */
-static uint32_t int_latency_bench_ready;
+static u32_t int_latency_bench_ready;
 
 /* min amount of time it takes from HW interrupt generation to 'C' handler */
-uint32_t _hw_irq_to_c_handler_latency = ULONG_MAX;
+u32_t _hw_irq_to_c_handler_latency = ULONG_MAX;
 
 /**
  *
@@ -55,7 +55,7 @@ void _int_latency_start(void)
 	/* when interrupts are not already locked, take time stamp */
 	if (!int_locked_timestamp && int_latency_bench_ready) {
 		int_locked_timestamp = k_cycle_get_32();
-		int_lock_unlock_nest = 0;
+		int_lock_unlock_nest = 0U;
 	}
 	int_lock_unlock_nest++;
 }
@@ -71,9 +71,9 @@ void _int_latency_start(void)
  */
 void _int_latency_stop(void)
 {
-	uint32_t delta;
-	uint32_t delayOverhead;
-	uint32_t currentTime = k_cycle_get_32();
+	u32_t delta;
+	u32_t delayOverhead;
+	u32_t currentTime = k_cycle_get_32();
 
 	/* ensured intLatencyStart() was invoked first */
 	if (int_locked_timestamp) {
@@ -108,7 +108,7 @@ void _int_latency_stop(void)
 
 		/* interrupts are now enabled, get ready for next interrupt lock
 		 */
-		int_locked_timestamp = 0;
+		int_locked_timestamp = 0U;
 	}
 }
 
@@ -121,10 +121,10 @@ void _int_latency_stop(void)
  */
 void int_latency_init(void)
 {
-	uint32_t timeToReadTime;
-	uint32_t cacheWarming = NB_CACHE_WARMING_DRY_RUN;
+	u32_t timeToReadTime;
+	u32_t cacheWarming = NB_CACHE_WARMING_DRY_RUN;
 
-	int_latency_bench_ready = 1;
+	int_latency_bench_ready = 1U;
 
 	/*
 	 * measuring delay introduced by the interrupt latency benchmark few
@@ -157,7 +157,7 @@ void int_latency_init(void)
 
 		/* re-initialize globals to default values */
 		int_locked_latency_min = ULONG_MAX;
-		int_locked_latency_max = 0;
+		int_locked_latency_max = 0U;
 
 		cacheWarming--;
 	}
@@ -174,16 +174,16 @@ void int_latency_init(void)
  */
 void int_latency_show(void)
 {
-	uint32_t intHandlerLatency = 0;
+	u32_t intHandlerLatency = 0U;
 
-	if (!int_latency_bench_ready) {
+	if (int_latency_bench_ready == 0) {
 		printk("error: int_latency_init() has not been invoked\n");
 		return;
 	}
 
 	if (int_locked_latency_min != ULONG_MAX) {
 		if (_hw_irq_to_c_handler_latency == ULONG_MAX) {
-			intHandlerLatency = 0;
+			intHandlerLatency = 0U;
 			printk(" Min latency from hw interrupt up to 'C' int. "
 			       "handler: "
 			       "not measured\n");
@@ -221,5 +221,5 @@ void int_latency_show(void)
 	 * disabled.
 	 */
 	int_locked_latency_min = ULONG_MAX;
-	int_locked_latency_max = 0;
+	int_locked_latency_max = 0U;
 }

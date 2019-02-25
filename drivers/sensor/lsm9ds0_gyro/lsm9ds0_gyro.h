@@ -6,10 +6,10 @@
 * SPDX-License-Identifier: Apache-2.0
 */
 
-#ifndef __SENSOR_LSM9DS0_GYRO_H__
-#define __SENSOR_LSM9DS0_GYRO_H__
+#ifndef ZEPHYR_DRIVERS_SENSOR_LSM9DS0_GYRO_LSM9DS0_GYRO_H_
+#define ZEPHYR_DRIVERS_SENSOR_LSM9DS0_GYRO_LSM9DS0_GYRO_H_
 
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <i2c.h>
 #include <misc/util.h>
 
@@ -186,8 +186,6 @@
 						 BIT(0))
 #define LSM9DS0_GYRO_SHIFT_INT1_DURATION_G_D    0
 
-#define LSM9DS0_GYRO_I2C_ADDR          		CONFIG_LSM9DS0_GYRO_I2C_ADDR
-
 #if defined(CONFIG_LSM9DS0_GYRO_FULLSCALE_245)
 	#define LSM9DS0_GYRO_DEFAULT_FULLSCALE  0
 #elif defined(CONFIG_LSM9DS0_GYRO_FULLSCALE_500)
@@ -213,11 +211,11 @@
 
 struct lsm9ds0_gyro_config {
 	char *i2c_master_dev_name;
-	uint16_t i2c_slave_addr;
+	u16_t i2c_slave_addr;
 
 #if CONFIG_LSM9DS0_GYRO_TRIGGER_DRDY
 	char *gpio_drdy_dev_name;
-	uint8_t gpio_drdy_int_pin;
+	u8_t gpio_drdy_int_pin;
 #endif
 };
 
@@ -229,7 +227,9 @@ struct lsm9ds0_gyro_data {
 #endif
 
 #if defined(CONFIG_LSM9DS0_GYRO_TRIGGER_DRDY)
-	char __stack thread_stack[CONFIG_LSM9DS0_GYRO_THREAD_STACK_SIZE];
+	K_THREAD_STACK_MEMBER(thread_stack,
+			      CONFIG_LSM9DS0_GYRO_THREAD_STACK_SIZE);
+	struct k_thread thread;
 	struct device *dev;
 
 	struct device *gpio_drdy;
@@ -240,8 +240,8 @@ struct lsm9ds0_gyro_data {
 
 	int sample_x, sample_y, sample_z;
 #if defined(CONFIG_LSM9DS0_GYRO_FULLSCALE_RUNTIME)
-	uint8_t sample_fs;
-	uint8_t fs;
+	u8_t sample_fs;
+	u8_t fs;
 #endif
 };
 
@@ -253,7 +253,4 @@ int lsm9ds0_gyro_trigger_set(struct device *dev,
 int lsm9ds0_gyro_init_interrupt(struct device *dev);
 #endif
 
-#define SYS_LOG_DOMAIN "LSM9DS0_GYRO"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-#endif /* __SENSOR_LSM9DS0_GYRO_H__ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_LSM9DS0_GYRO_LSM9DS0_GYRO_H_ */

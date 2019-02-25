@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#ifndef ZEPHYR_INCLUDE_TOOLCHAIN_COMMON_H_
+#define ZEPHYR_INCLUDE_TOOLCHAIN_COMMON_H_
 /**
  * @file
  * @brief Common toolchain abstraction
@@ -52,7 +54,7 @@
 
 #ifdef _ASMLANGUAGE
 
-  #ifdef CONFIG_X86
+  #if defined(CONFIG_X86) || defined(CONFIG_X86_64)
 
     #ifdef PERF_OPT
       #define PERFOPT_ALIGN .balign 16
@@ -76,6 +78,8 @@
 	  defined(CONFIG_XTENSA)
     #define PERFOPT_ALIGN .balign 4
 
+  #elif defined(CONFIG_ARCH_POSIX)
+
   #else
 
     #error Architecture unsupported
@@ -95,19 +99,35 @@
 #define _STRINGIFY(x) #x
 #define STRINGIFY(s) _STRINGIFY(s)
 
-/* Indicate that an array will be used for stack space. */
-
-#define __stack __aligned(STACK_ALIGN)
-
 /* concatenate the values of the arguments into one */
 #define _DO_CONCAT(x, y) x ## y
 #define _CONCAT(x, y) _DO_CONCAT(x, y)
 
+/* Additionally used as a sentinel by gen_syscalls.py to identify what
+ * functions are system calls
+ *
+ * Note POSIX unit tests don't still generate the system call stubs, so
+ * until https://github.com/zephyrproject-rtos/zephyr/issues/5006 is
+ * fixed via possibly #4174, we introduce this hack -- which will
+ * disallow us to test system calls in POSIX unit testing (currently
+ * not used).
+ */
+#ifndef ZTEST_UNITTEST
+#define __syscall static inline
+#else
+#define __syscall
+#endif /* #ifndef ZTEST_UNITTEST */
+
 #ifndef BUILD_ASSERT
 /* compile-time assertion that makes the build fail */
-#define BUILD_ASSERT(EXPR) typedef char __build_assert_failure[(EXPR) ? 1 : -1]
+#define BUILD_ASSERT(EXPR) \
+	enum _CONCAT(__build_assert_enum, __COUNTER__) { \
+		_CONCAT(__build_assert, __COUNTER__) = 1 / !!(EXPR) \
+	}
 #endif
 #ifndef BUILD_ASSERT_MSG
 /* build assertion with message -- common implementation swallows message. */
 #define BUILD_ASSERT_MSG(EXPR, MSG) BUILD_ASSERT(EXPR)
 #endif
+
+#endif /* ZEPHYR_INCLUDE_TOOLCHAIN_COMMON_H_ */

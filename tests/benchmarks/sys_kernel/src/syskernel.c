@@ -13,8 +13,10 @@
 
 #include <string.h>
 
-char __stack thread_stack1[STACK_SIZE];
-char __stack thread_stack2[STACK_SIZE];
+K_THREAD_STACK_DEFINE(thread_stack1, STACK_SIZE);
+K_THREAD_STACK_DEFINE(thread_stack2, STACK_SIZE);
+struct k_thread thread_data1;
+struct k_thread thread_data2;
 
 char Msg[256];
 
@@ -25,7 +27,10 @@ const char sz_partial[] = "PARTIAL";
 const char sz_fail[] = "FAILED";
 
 /* time necessary to read the time */
-uint32_t tm_off;
+u32_t tm_off;
+
+/* Holds the loop count that need to be carried out. */
+u32_t number_of_loops;
 
 /**
  *
@@ -53,7 +58,7 @@ void begin_test(void)
  * @param i   Number of tests.
  * @param t   Time in ticks for the whole test.
  */
-int check_result(int i, uint32_t t)
+int check_result(int i, u32_t t)
 {
 	/*
 	 * bench_test_end checks tCheck static variable.
@@ -66,7 +71,7 @@ int check_result(int i, uint32_t t)
 		fprintf(output_file, sz_case_end_fmt);
 		return 0;
 	}
-	if (i != NUMBER_OF_LOOPS) {
+	if (i != number_of_loops) {
 		fprintf(output_file, sz_case_result_fmt, sz_fail);
 		fprintf(output_file, sz_case_details_fmt, "loop counter = ");
 		fprintf(output_file, "%i !!!", i);
@@ -77,7 +82,7 @@ int check_result(int i, uint32_t t)
 	fprintf(output_file, sz_case_details_fmt,
 			"Average time for 1 iteration: ");
 	fprintf(output_file, sz_case_timing_fmt,
-			SYS_CLOCK_HW_CYCLES_TO_NS_AVG(t, NUMBER_OF_LOOPS));
+			SYS_CLOCK_HW_CYCLES_TO_NS_AVG(t, number_of_loops));
 
 	fprintf(output_file, sz_case_end_fmt);
 	return 1;
@@ -137,8 +142,25 @@ void main(void)
 	int	    continuously = 0;
 	int	    test_result;
 
+	number_of_loops = NUMBER_OF_LOOPS;
+
+	/* The following code is needed to make the benchmakring run on
+	 * slower platforms.
+	 */
+	u64_t time_stamp = z_tick_get();
+
+	k_sleep(1);
+
+	u64_t time_stamp_2 = z_tick_get();
+
+	if (time_stamp_2 - time_stamp > 1) {
+		number_of_loops = 10U;
+	}
+
 	init_output(&continuously);
 	bench_test_init();
+
+
 
 	do {
 		fprintf(output_file, sz_module_title_fmt,
@@ -148,7 +170,7 @@ void main(void)
 		fprintf(output_file,
 			"\n\nEach test below is repeated %d times;\n"
 			"average time for one iteration is displayed.",
-			NUMBER_OF_LOOPS);
+			number_of_loops);
 
 		test_result = 0;
 

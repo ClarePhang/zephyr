@@ -12,8 +12,12 @@ source "ext/hal/Kconfig"
 
 source "ext/lib/crypto/Kconfig"
 
-source "ext/fs/Kconfig"
+source "ext/lib/encoding/Kconfig"
 
-source "ext/debug/Kconfig"
+source "ext/lib/fnmatch/Kconfig"
+
+source "ext/lib/ipc/open-amp/Kconfig"
+
+source "ext/lib/mgmt/Kconfig"
 
 endmenu

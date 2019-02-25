@@ -11,8 +11,8 @@
  * Module declares routines of PCI bus initialization and query
  */
 
-#ifndef _PCI_H_
-#define _PCI_H_
+#ifndef ZEPHYR_INCLUDE_DRIVERS_PCI_PCI_H_
+#define ZEPHYR_INCLUDE_DRIVERS_PCI_PCI_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,20 +30,20 @@ extern "C" {
 /* PCI device information */
 
 struct pci_dev_info {
-	uint32_t addr; /* I/O or memory region address */
-	uint32_t size; /* memory region size */
+	u32_t addr; /* I/O or memory region address */
+	u32_t size; /* memory region size */
 	int irq;
 
-	uint32_t bus:8;
-	uint32_t dev:5;
-	uint32_t function:4;
-	uint32_t mem_type:1; /* memory type: BAR_SPACE_MEM/BAR_SPACE_IO */
-	uint32_t class_type:8;
-	uint32_t bar:3;
-	uint32_t _reserved:3;
+	u32_t bus:8;
+	u32_t dev:5;
+	u32_t function:4;
+	u32_t mem_type:1; /* memory type: BAR_SPACE_MEM/BAR_SPACE_IO */
+	u32_t class_type:8;
+	u32_t bar:3;
+	u32_t _reserved:3;
 
-	uint16_t vendor_id;
-	uint16_t device_id;
+	u16_t vendor_id;
+	u16_t device_id;
 };
 
 #ifdef CONFIG_PCI_ENUMERATION
@@ -65,7 +65,7 @@ void pci_legacy_bridge_configure(struct pci_dev_info *dev_info,
 				 int pci_interrupt_pin,
 				 int irq_number);
 
-#ifdef CONFIG_PCI_DEBUG
+#ifdef CONFIG_PCI_LOG_LEVEL_DBG
 extern void pci_show(struct pci_dev_info *dev_info);
 #else
 #define pci_show(__unused__) { ; }
@@ -75,4 +75,4 @@ extern void pci_show(struct pci_dev_info *dev_info);
 }
 #endif
 
-#endif /* _PCI_H_ */
+#endif /* ZEPHYR_INCLUDE_DRIVERS_PCI_PCI_H_ */

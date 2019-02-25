@@ -18,15 +18,17 @@
 #include <misc/byteorder.h>
 #include <string.h>
 
-#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BLUETOOTH_DEBUG_HCI_DRIVER)
-#include <bluetooth/log.h>
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/hci.h>
 #include <bluetooth/hci_driver.h>
 
+#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_HCI_DRIVER)
+#define LOG_MODULE_NAME bt_driver
+#include "common/log.h"
+
 #include "../util.h"
 
-#if defined(CONFIG_BLUETOOTH_NRF51_PM)
+#if defined(CONFIG_BT_NRF51_PM)
 #include "../nrf51_pm.h"
 #endif
 
@@ -36,36 +38,37 @@
 #define H4_SCO  0x03
 #define H4_EVT  0x04
 
-static BT_STACK_NOINIT(rx_thread_stack, CONFIG_BLUETOOTH_RX_STACK_SIZE);
+static K_THREAD_STACK_DEFINE(rx_thread_stack, CONFIG_BT_RX_STACK_SIZE);
+static struct k_thread rx_thread_data;
 
 static struct {
 	struct net_buf *buf;
 	struct k_fifo   fifo;
 
-	uint16_t remaining;
-	uint16_t discard;
+	u16_t    remaining;
+	u16_t    discard;
 
 	bool     have_hdr;
 	bool     discardable;
 
-	uint8_t  hdr_len;
+	u8_t     hdr_len;
 
-	uint8_t  type;
+	u8_t     type;
 	union {
 		struct bt_hci_evt_hdr evt;
 		struct bt_hci_acl_hdr acl;
-		uint8_t hdr[4];
+		u8_t hdr[4];
 	};
 } rx = {
-	.fifo = K_FIFO_INITIALIZER(rx.fifo),
+	.fifo = _K_FIFO_INITIALIZER(rx.fifo),
 };
 
 static struct {
-	uint8_t type;
+	u8_t type;
 	struct net_buf *buf;
 	struct k_fifo   fifo;
 } tx = {
-	.fifo = K_FIFO_INITIALIZER(tx.fifo),
+	.fifo = _K_FIFO_INITIALIZER(tx.fifo),
 };
 
 static struct device *h4_dev;
@@ -99,7 +102,7 @@ static inline void get_acl_hdr(void)
 	struct bt_hci_acl_hdr *hdr = &rx.acl;
 	int to_read = sizeof(*hdr) - rx.remaining;
 
-	rx.remaining -= uart_fifo_read(h4_dev, (uint8_t *)hdr + to_read,
+	rx.remaining -= uart_fifo_read(h4_dev, (u8_t *)hdr + to_read,
 				       rx.remaining);
 	if (!rx.remaining) {
 		rx.remaining = sys_le16_to_cpu(hdr->len);
@@ -113,7 +116,7 @@ static inline void get_evt_hdr(void)
 	struct bt_hci_evt_hdr *hdr = &rx.evt;
 	int to_read = rx.hdr_len - rx.remaining;
 
-	rx.remaining -= uart_fifo_read(h4_dev, (uint8_t *)hdr + to_read,
+	rx.remaining -= uart_fifo_read(h4_dev, (u8_t *)hdr + to_read,
 				       rx.remaining);
 	if (rx.hdr_len == sizeof(*hdr) && rx.remaining < sizeof(*hdr)) {
 		switch (rx.evt.evt) {
@@ -121,7 +124,7 @@ static inline void get_evt_hdr(void)
 			rx.remaining++;
 			rx.hdr_len++;
 			break;
-#if defined(CONFIG_BLUETOOTH_BREDR)
+#if defined(CONFIG_BT_BREDR)
 		case BT_HCI_EVT_INQUIRY_RESULT_WITH_RSSI:
 		case BT_HCI_EVT_EXTENDED_INQUIRY_RESULT:
 			rx.discardable = true;
@@ -152,9 +155,9 @@ static inline void copy_hdr(struct net_buf *buf)
 static void reset_rx(void)
 {
 	rx.type = H4_NONE;
-	rx.remaining = 0;
+	rx.remaining = 0U;
 	rx.have_hdr = false;
-	rx.hdr_len = 0;
+	rx.hdr_len = 0U;
 	rx.discardable = false;
 }
 
@@ -167,7 +170,11 @@ static struct net_buf *get_rx(int timeout)
 		return bt_buf_get_cmd_complete(timeout);
 	}
 
-	return bt_buf_get_rx(timeout);
+	if (rx.type == H4_ACL) {
+		return bt_buf_get_rx(BT_BUF_ACL_IN, timeout);
+	} else {
+		return bt_buf_get_rx(BT_BUF_EVT, timeout);
+	}
 }
 
 static void rx_thread(void *p1, void *p2, void *p3)
@@ -223,9 +230,9 @@ static void rx_thread(void *p1, void *p2, void *p3)
 
 static size_t h4_discard(struct device *uart, size_t len)
 {
-	uint8_t buf[33];
+	u8_t buf[33];
 
-	return uart_fifo_read(uart, buf, min(len, sizeof(buf)));
+	return uart_fifo_read(uart, buf, MIN(len, sizeof(buf)));
 }
 
 static inline void read_payload(void)
@@ -423,7 +430,7 @@ static int h4_open(void)
 	uart_irq_rx_disable(h4_dev);
 	uart_irq_tx_disable(h4_dev);
 
-#if defined(CONFIG_BLUETOOTH_NRF51_PM)
+#if defined(CONFIG_BT_NRF51_PM)
 	if (nrf51_init(h4_dev) < 0) {
 		return -EIO;
 	}
@@ -433,8 +440,11 @@ static int h4_open(void)
 
 	uart_irq_callback_set(h4_dev, bt_uart_isr);
 
-	k_thread_spawn(rx_thread_stack, sizeof(rx_thread_stack), rx_thread,
-		       NULL, NULL, NULL, K_PRIO_COOP(7), 0, K_NO_WAIT);
+	k_thread_create(&rx_thread_data, rx_thread_stack,
+			K_THREAD_STACK_SIZEOF(rx_thread_stack),
+			rx_thread, NULL, NULL, NULL,
+			K_PRIO_COOP(CONFIG_BT_RX_PRIO),
+			0, K_NO_WAIT);
 
 	return 0;
 }
@@ -450,7 +460,7 @@ static int _bt_uart_init(struct device *unused)
 {
 	ARG_UNUSED(unused);
 
-	h4_dev = device_get_binding(CONFIG_BLUETOOTH_UART_ON_DEV_NAME);
+	h4_dev = device_get_binding(CONFIG_BT_UART_ON_DEV_NAME);
 	if (!h4_dev) {
 		return -EINVAL;
 	}

@@ -4,11 +4,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <fxas21002.h>
+#include <logging/log.h>
+
+#include "fxas21002.h"
+
+#define LOG_LEVEL CONFIG_SENSOR_LOG_LEVEL
+#include <logging/log.h>
+LOG_MODULE_DECLARE(FXAS21002);
 
 static void fxas21002_gpio_callback(struct device *dev,
 				   struct gpio_callback *cb,
-				   uint32_t pin_mask)
+				   u32_t pin_mask)
 {
 	struct fxas21002_data *data =
 		CONTAINER_OF(cb, struct fxas21002_data, gpio_cb);
@@ -47,15 +53,15 @@ static void fxas21002_handle_int(void *arg)
 	struct device *dev = (struct device *)arg;
 	const struct fxas21002_config *config = dev->config->config_info;
 	struct fxas21002_data *data = dev->driver_data;
-	uint8_t int_source;
+	u8_t int_source;
 
 	k_sem_take(&data->sem, K_FOREVER);
 
 	if (i2c_reg_read_byte(data->i2c, config->i2c_address,
 			      FXAS21002_REG_INT_SOURCE,
 			      &int_source)) {
-		SYS_LOG_ERR("Could not read interrupt source");
-		int_source = 0;
+		LOG_ERR("Could not read interrupt source");
+		int_source = 0U;
 	}
 
 	k_sem_give(&data->sem);
@@ -100,8 +106,8 @@ int fxas21002_trigger_set(struct device *dev,
 	const struct fxas21002_config *config = dev->config->config_info;
 	struct fxas21002_data *data = dev->driver_data;
 	enum fxas21002_power power = FXAS21002_POWER_STANDBY;
-	uint32_t transition_time;
-	uint8_t mask;
+	u32_t transition_time;
+	u8_t mask;
 	int ret = 0;
 
 	k_sem_take(&data->sem, K_FOREVER);
@@ -112,7 +118,7 @@ int fxas21002_trigger_set(struct device *dev,
 		data->drdy_handler = handler;
 		break;
 	default:
-		SYS_LOG_ERR("Unsupported sensor trigger");
+		LOG_ERR("Unsupported sensor trigger");
 		ret = -ENOTSUP;
 		goto exit;
 	}
@@ -122,14 +128,14 @@ int fxas21002_trigger_set(struct device *dev,
 	 * can restore it later.
 	 */
 	if (fxas21002_get_power(dev, &power)) {
-		SYS_LOG_ERR("Could not get power mode");
+		LOG_ERR("Could not get power mode");
 		ret = -EIO;
 		goto exit;
 	}
 
 	/* Put the sensor in ready mode */
 	if (fxas21002_set_power(dev, FXAS21002_POWER_READY)) {
-		SYS_LOG_ERR("Could not set ready mode");
+		LOG_ERR("Could not set ready mode");
 		ret = -EIO;
 		goto exit;
 	}
@@ -139,14 +145,14 @@ int fxas21002_trigger_set(struct device *dev,
 				FXAS21002_REG_CTRLREG2,
 				mask,
 				handler ? mask : 0)) {
-		SYS_LOG_ERR("Could not configure interrupt");
+		LOG_ERR("Could not configure interrupt");
 		ret = -EIO;
 		goto exit;
 	}
 
 	/* Restore the previous power mode */
 	if (fxas21002_set_power(dev, power)) {
-		SYS_LOG_ERR("Could not restore power mode");
+		LOG_ERR("Could not restore power mode");
 		ret = -EIO;
 		goto exit;
 	}
@@ -167,34 +173,35 @@ int fxas21002_trigger_init(struct device *dev)
 {
 	const struct fxas21002_config *config = dev->config->config_info;
 	struct fxas21002_data *data = dev->driver_data;
-	uint8_t ctrl_reg2;
+	u8_t ctrl_reg2;
 
 #if defined(CONFIG_FXAS21002_TRIGGER_OWN_THREAD)
 	k_sem_init(&data->trig_sem, 0, UINT_MAX);
-	k_thread_spawn(data->thread_stack, CONFIG_FXAS21002_THREAD_STACK_SIZE,
-		       fxas21002_thread_main, dev, 0, NULL,
-		       K_PRIO_COOP(CONFIG_FXAS21002_THREAD_PRIORITY), 0, 0);
+	k_thread_create(&data->thread, data->thread_stack,
+			CONFIG_FXAS21002_THREAD_STACK_SIZE,
+			fxas21002_thread_main, dev, 0, NULL,
+			K_PRIO_COOP(CONFIG_FXAS21002_THREAD_PRIORITY), 0, 0);
 #elif defined(CONFIG_FXAS21002_TRIGGER_GLOBAL_THREAD)
 	data->work.handler = fxas21002_work_handler;
 	data->dev = dev;
 #endif
 
 	/* Route the interrupts to INT1/INT2 pins */
-	ctrl_reg2 = 0;
+	ctrl_reg2 = 0U;
 #if CONFIG_FXAS21002_DRDY_INT1
 	ctrl_reg2 |= FXAS21002_CTRLREG2_CFG_DRDY_MASK;
 #endif
 
 	if (i2c_reg_write_byte(data->i2c, config->i2c_address,
 			       FXAS21002_REG_CTRLREG2, ctrl_reg2)) {
-		SYS_LOG_ERR("Could not configure interrupt pin routing");
+		LOG_ERR("Could not configure interrupt pin routing");
 		return -EIO;
 	}
 
 	/* Get the GPIO device */
 	data->gpio = device_get_binding(config->gpio_name);
 	if (data->gpio == NULL) {
-		SYS_LOG_ERR("Could not find GPIO device");
+		LOG_ERR("Could not find GPIO device");
 		return -EINVAL;
 	}
 

@@ -5,7 +5,9 @@
  */
 
 /**
- * @file measure context switch time between cooperative threads
+ * @file
+ *
+ * @brief Measure context switch time between cooperative threads
  *
  * This file contains thread (coop) context switch time measurement.
  * The thread starts two cooperative thread. One thread waits on a semaphore. The other,
@@ -23,17 +25,19 @@
 /* number of context switches */
 #define NCTXSWITCH   10000
 #ifndef STACKSIZE
-#define STACKSIZE    512
+#define STACKSIZE    (512 + CONFIG_TEST_EXTRA_STACKSIZE)
 #endif
 
-/* stack used by the fibers */
-static char __stack thread_one_stack[STACKSIZE];
-static char __stack thread_two_stack[STACKSIZE];
+/* stack used by the threads */
+static K_THREAD_STACK_DEFINE(thread_one_stack, STACKSIZE);
+static K_THREAD_STACK_DEFINE(thread_two_stack, STACKSIZE);
+static struct k_thread thread_one_data;
+static struct k_thread thread_two_data;
 
-static uint32_t timestamp;
+static u32_t timestamp;
 
 /* context switches counter */
-static volatile uint32_t ctx_switch_counter;
+static volatile u32_t ctx_switch_counter;
 
 /* context switch balancer. Incremented by one thread, decremented by another*/
 static volatile int ctx_switch_balancer;
@@ -89,14 +93,16 @@ static void thread_two(void)
 int coop_ctx_switch(void)
 {
 	PRINT_FORMAT(" 6 - Measure average context switch time between threads (coop)");
-	ctx_switch_counter = 0;
+	ctx_switch_counter = 0U;
 	ctx_switch_balancer = 0;
 
 	bench_test_start();
-	k_thread_spawn(&thread_one_stack[0], STACKSIZE,
-		       (k_thread_entry_t) thread_one, NULL, NULL, NULL, 6, 0, K_NO_WAIT);
-	k_thread_spawn(&thread_two_stack[0], STACKSIZE,
-		       (k_thread_entry_t) thread_two, NULL, NULL, NULL, 6, 0, K_NO_WAIT);
+	k_thread_create(&thread_one_data, thread_one_stack, STACKSIZE,
+			(k_thread_entry_t) thread_one, NULL, NULL, NULL,
+			6, 0, K_NO_WAIT);
+	k_thread_create(&thread_two_data, thread_two_stack, STACKSIZE,
+			(k_thread_entry_t) thread_two, NULL, NULL, NULL,
+			6, 0, K_NO_WAIT);
 
 	if (ctx_switch_balancer > 3 || ctx_switch_balancer < -3) {
 		PRINT_FORMAT(" Balance is %d. FAILED", ctx_switch_balancer);

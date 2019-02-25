@@ -1,4 +1,4 @@
-Title: Test nano_work
+Title: Test workqeue APIs
 
 Description:
 
@@ -8,10 +8,10 @@ A simple application verifying the workqueue API
 
 Building and Running Project:
 
-This nanokernel project outputs to the console.  It can be built and executed
+This kernel project outputs to the console.  It can be built and executed
 on QEMU as follows:
 
-    make qemu
+    make run
 
 --------------------------------------------------------------------------------
 
@@ -95,6 +95,7 @@ Starting delayed resubmit from coop thread test
 Starting delayed cancel test
  - Cancel delayed work from preempt thread
  - Cancel delayed work from coop thread
+ - Cancel pending delayed work from coop thread
  - Waiting for work to finish
  - Checking results
 ===================================================================

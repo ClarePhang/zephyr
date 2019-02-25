@@ -35,7 +35,7 @@ fi
 # .zephyrrc in your home directory. It will be automatically
 # run (if it exists) by this script.
 
-if uname | grep -q -P "MINGW|MSYS"; then
+if uname | grep -q "MINGW"; then
     win_build=1
     PWD_OPT="-W"
 else
@@ -44,7 +44,7 @@ else
 fi
 
 # identify OS source tree root directory
-export ZEPHYR_BASE=$( builtin cd "$( dirname "$DIR" )" && pwd ${PWD_OPT})
+export ZEPHYR_BASE=$( builtin cd "$( dirname "$DIR" )" > /dev/null && pwd ${PWD_OPT})
 unset PWD_OPT
 
 scripts_path=${ZEPHYR_BASE}/scripts

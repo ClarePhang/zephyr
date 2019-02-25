@@ -4,17 +4,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <logging/log.h>
+LOG_MODULE_DECLARE(net_nats_sample, LOG_LEVEL_DBG);
+
 #include <ctype.h>
 #include <errno.h>
 #include <json.h>
 #include <misc/printk.h>
 #include <misc/util.h>
-#include <net/nbuf.h>
+#include <net/net_pkt.h>
 #include <net/net_context.h>
 #include <net/net_core.h>
 #include <net/net_if.h>
 #include <stdbool.h>
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,7 +33,7 @@ struct nats_info {
 	const char *go;
 	const char *host;
 	size_t max_payload;
-	uint16_t port;
+	u16_t port;
 	bool ssl_required;
 	bool auth_required;
 };
@@ -65,7 +68,7 @@ static bool is_subject_valid(const char *subject, size_t len)
 
 			break;
 		default:
-			if (isalnum(subject[pos])) {
+			if (isalnum((unsigned char)subject[pos])) {
 				continue;
 			}
 
@@ -85,7 +88,7 @@ static bool is_sid_valid(const char *sid, size_t len)
 	}
 
 	for (pos = 0; pos < len; pos++) {
-		if (!isalnum(sid[pos])) {
+		if (!isalnum((unsigned char)sid[pos])) {
 			return false;
 		}
 	}
@@ -98,23 +101,24 @@ static bool is_sid_valid(const char *sid, size_t len)
 static int transmitv(struct net_context *conn, int iovcnt,
 		     struct io_vec *iov)
 {
-	struct net_buf *buf;
+	struct net_pkt *pkt;
 	int i;
 
-	buf = net_nbuf_get_tx(conn, K_FOREVER);
-	if (!buf) {
+	pkt = net_pkt_get_tx(conn, K_FOREVER);
+	if (!pkt) {
 		return -ENOMEM;
 	}
 
 	for (i = 0; i < iovcnt; i++) {
-		if (!net_nbuf_append(buf, iov[i].len, iov[i].base, K_FOREVER)) {
-			net_nbuf_unref(buf);
+		if (!net_pkt_append_all(pkt, iov[i].len, iov[i].base,
+					K_FOREVER)) {
+			net_pkt_unref(pkt);
 
 			return -ENOMEM;
 		}
 	}
 
-	return net_context_send(buf, NULL, K_NO_WAIT, NULL, NULL);
+	return net_context_send(pkt, NULL, K_NO_WAIT, NULL, NULL);
 }
 
 static inline int transmit(struct net_context *conn, const char buffer[],
@@ -132,7 +136,7 @@ static inline int transmit(struct net_context *conn, const char buffer[],
 	.type = type_ \
 }
 static int handle_server_info(struct nats *nats, char *payload, size_t len,
-			      struct net_buf *buf, uint16_t offset)
+			      struct net_buf *buf, u16_t offset)
 {
 	static const struct json_obj_descr descr[] = {
 		FIELD(struct nats_info, server_id, JSON_TOK_STRING),
@@ -231,11 +235,11 @@ static char *strsep(char *strp, const char *delims)
 	return NULL;
 }
 
-static int copy_nbuf_to_buf(struct net_buf *src, uint16_t offset,
+static int copy_pkt_to_buf(struct net_buf *src, u16_t offset,
 			    char *dst, size_t dst_size, size_t n_bytes)
 {
-	uint16_t to_copy;
-	uint16_t copied;
+	u16_t to_copy;
+	u16_t copied;
 
 	if (dst_size < n_bytes) {
 		return -ENOMEM;
@@ -246,8 +250,8 @@ static int copy_nbuf_to_buf(struct net_buf *src, uint16_t offset,
 		src = src->frags;
 	}
 
-	for (copied = 0; src && n_bytes > 0; offset = 0) {
-		to_copy = min(n_bytes, src->len - offset);
+	for (copied = 0U; src && n_bytes > 0; offset = 0U) {
+		to_copy = MIN(n_bytes, src->len - offset);
 
 		memcpy(dst + copied, (char *)src->data + offset, to_copy);
 		copied += to_copy;
@@ -264,7 +268,7 @@ static int copy_nbuf_to_buf(struct net_buf *src, uint16_t offset,
 }
 
 static int handle_server_msg(struct nats *nats, char *payload, size_t len,
-			     struct net_buf *buf, uint16_t offset)
+			     struct net_buf *buf, u16_t offset)
 {
 	char *subject, *sid, *reply_to, *bytes, *end_ptr;
 	char prev_end = payload[len];
@@ -304,8 +308,8 @@ static int handle_server_msg(struct nats *nats, char *payload, size_t len,
 		return -ENOMEM;
 	}
 
-	if (copy_nbuf_to_buf(buf, offset, end_ptr, CMD_BUF_LEN - len,
-			     payload_size) < 0) {
+	if (copy_pkt_to_buf(buf, offset, end_ptr, CMD_BUF_LEN - len,
+			    payload_size) < 0) {
 		return -ENOMEM;
 	}
 	end_ptr[payload_size] = '\0';
@@ -320,7 +324,7 @@ static int handle_server_msg(struct nats *nats, char *payload, size_t len,
 }
 
 static int handle_server_ping(struct nats *nats, char *payload, size_t len,
-			      struct net_buf *buf, uint16_t offset)
+			      struct net_buf *buf, u16_t offset)
 {
 	static const char pong[] = "PONG\r\n";
 
@@ -328,7 +332,7 @@ static int handle_server_ping(struct nats *nats, char *payload, size_t len,
 }
 
 static int ignore(struct nats *nats, char *payload, size_t len,
-		  struct net_buf *buf, uint16_t offset)
+		  struct net_buf *buf, u16_t offset)
 {
 	/* FIXME: Notify user of success/errors.  This would require
 	 * maintaining information of what was the last sent command in
@@ -345,13 +349,13 @@ static int ignore(struct nats *nats, char *payload, size_t len,
 	.handle = handler_ \
 }
 static int handle_server_cmd(struct nats *nats, char *cmd, size_t len,
-			     struct net_buf *buf, uint16_t offset)
+			     struct net_buf *buf, u16_t offset)
 {
 	static const struct {
 		const char *op;
 		size_t len;
 		int (*handle)(struct nats *nats, char *payload, size_t len,
-			      struct net_buf *buf, uint16_t offset);
+			      struct net_buf *buf, u16_t offset);
 	} cmds[] = {
 		CMD("INFO", handle_server_info),
 		CMD("MSG", handle_server_msg),
@@ -497,7 +501,7 @@ int nats_publish(const struct nats *nats,
 	}
 
 	if (reply_to) {
-		return transmitv(nats->conn, 7, (struct io_vec[]) {
+		return transmitv(nats->conn, 9, (struct io_vec[]) {
 			TRANSMITV_LITERAL("PUB "),
 			{
 				.base = subject,
@@ -513,68 +517,74 @@ int nats_publish(const struct nats *nats,
 			TRANSMITV_LITERAL(" "),
 			{ .base = payload_len_str, .len = ret },
 			TRANSMITV_LITERAL("\r\n"),
+			{ .base = payload, .len = payload_len },
+			TRANSMITV_LITERAL("\r\n"),
 		});
 	}
 
-	return transmitv(nats->conn, 5, (struct io_vec[]) {
+	return transmitv(nats->conn, 7, (struct io_vec[]) {
 		TRANSMITV_LITERAL("PUB "),
 		{
 			.base = subject,
 			.len = subject_len ? subject_len : strlen(subject)
 		},
 		TRANSMITV_LITERAL(" "),
-		{
-			.base = reply_to,
-			.len = reply_to_len ? reply_to_len : strlen(reply_to)
-		},
+		{ .base = payload_len_str, .len = ret },
+		TRANSMITV_LITERAL("\r\n"),
+		{ .base = payload, .len = payload_len },
 		TRANSMITV_LITERAL("\r\n"),
 	});
 }
 
-static void receive_cb(struct net_context *ctx, struct net_buf *buf, int status,
+static void receive_cb(struct net_context *ctx,
+		       struct net_pkt *pkt,
+		       union net_ip_header *ip_hdr,
+		       union net_proto_header *proto_hdr,
+		       int status,
 		       void *user_data)
 {
 	struct nats *nats = user_data;
 	char cmd_buf[CMD_BUF_LEN];
 	struct net_buf *tmp;
-	uint16_t pos = 0, cmd_len = 0;
+	u16_t pos = 0U, cmd_len = 0U;
 	size_t len;
-	uint8_t *end_of_line;
+	u8_t *end_of_line;
 
-	if (!buf) {
+	if (!pkt) {
 		/* FIXME: How to handle disconnection? */
 		return;
 	}
 
 	if (status) {
 		/* FIXME: How to handle connectio error? */
-		net_buf_unref(buf);
+		net_pkt_unref(pkt);
 		return;
 	}
 
-	tmp = buf->frags;
-	pos = net_nbuf_appdata(buf) - tmp->data;
+	tmp = pkt->frags;
+	pos = net_pkt_appdata(pkt) - tmp->data;
 
 	while (tmp) {
 		len = tmp->len - pos;
 
-		end_of_line = memchr((uint8_t *)tmp->data + pos, '\n', len);
+		end_of_line = memchr((u8_t *)tmp->data + pos, '\n', len);
 		if (end_of_line) {
-			len = end_of_line - ((uint8_t *)tmp->data + pos);
+			len = end_of_line - ((u8_t *)tmp->data + pos);
 		}
 
 		if (cmd_len + len > sizeof(cmd_buf)) {
 			break;
 		}
 
-		tmp = net_nbuf_read(tmp, pos, &pos, len, cmd_buf + cmd_len);
+		tmp = net_frag_read(tmp, pos, &pos, len,
+				    (u8_t *)(cmd_buf + cmd_len));
 		cmd_len += len;
 
 		if (end_of_line) {
 			int ret;
 
 			if (tmp) {
-				tmp = net_nbuf_read(tmp, pos, &pos, 1, NULL);
+				tmp = net_frag_read(tmp, pos, &pos, 1, NULL);
 			}
 
 			cmd_buf[cmd_len] = '\0';
@@ -585,11 +595,11 @@ static void receive_cb(struct net_context *ctx, struct net_buf *buf, int status,
 				/* FIXME: What to do with unhandled messages? */
 				break;
 			}
-			cmd_len = 0;
+			cmd_len = 0U;
 		}
 	}
 
-	net_nbuf_unref(buf);
+	net_pkt_unref(pkt);
 }
 
 int nats_connect(struct nats *nats, struct sockaddr *addr, socklen_t addrlen)

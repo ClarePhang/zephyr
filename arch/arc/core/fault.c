@@ -12,56 +12,22 @@
  */
 
 #include <toolchain.h>
-#include <sections.h>
+#include <linker/sections.h>
 #include <inttypes.h>
 
 #include <kernel.h>
 #include <kernel_structs.h>
-
-#ifdef CONFIG_PRINTK
 #include <misc/printk.h>
-#define PR_EXC(...) printk(__VA_ARGS__)
-#else
-#define PR_EXC(...)
-#endif /* CONFIG_PRINTK */
+#include <exc_handle.h>
+#include <logging/log_ctrl.h>
 
-#if (CONFIG_FAULT_DUMP > 0)
-#define FAULT_DUMP(esf, fault) _FaultDump(esf, fault)
-#else
-#define FAULT_DUMP(esf, fault) \
-	do {                   \
-		(void) esf;    \
-		(void) fault;  \
-	} while ((0))
+#ifdef CONFIG_USERSPACE
+Z_EXC_DECLARE(z_arch_user_string_nlen);
+
+static const struct z_exc_handle exceptions[] = {
+	Z_EXC_HANDLE(z_arch_user_string_nlen)
+};
 #endif
-
-#if (CONFIG_FAULT_DUMP > 0)
-/*
- * @brief Dump information regarding fault (FAULT_DUMP > 0)
- *
- * Dump information regarding the fault when CONFIG_FAULT_DUMP is set to 1
- * (short form).
- *
- * @return N/A
- */
-void _FaultDump(const NANO_ESF *esf, int fault)
-{
-	ARG_UNUSED(esf);
-	ARG_UNUSED(fault);
-
-#ifdef CONFIG_PRINTK
-	uint32_t exc_addr = _arc_v2_aux_reg_read(_ARC_V2_EFA);
-	uint32_t ecr = _arc_v2_aux_reg_read(_ARC_V2_ECR);
-
-	PR_EXC("Exception vector: 0x%" PRIx32 ", cause code: 0x%" PRIx32
-	       ", parameter 0x%" PRIx32 "\n",
-	       _ARC_V2_ECR_VECTOR(ecr),
-	       _ARC_V2_ECR_CODE(ecr),
-	       _ARC_V2_ECR_PARAMETER(ecr));
-	PR_EXC("Address 0x%" PRIx32 "\n", exc_addr);
-#endif
-}
-#endif /* CONFIG_FAULT_DUMP */
 
 /*
  * @brief Fault handler
@@ -70,14 +36,49 @@ void _FaultDump(const NANO_ESF *esf, int fault)
  * and is responsible only for reporting the error. Once reported, it then
  * invokes the user provided routine _SysFatalErrorHandler() which is
  * responsible for implementing the error handling policy.
- *
- * @return This function does not return.
  */
-void _Fault(void)
+void _Fault(NANO_ESF *esf)
 {
-	uint32_t ecr = _arc_v2_aux_reg_read(_ARC_V2_ECR);
+	u32_t vector, code, parameter;
+	u32_t exc_addr = _arc_v2_aux_reg_read(_ARC_V2_EFA);
+	u32_t ecr = _arc_v2_aux_reg_read(_ARC_V2_ECR);
 
-	FAULT_DUMP(&_default_esf, ecr);
+	LOG_PANIC();
 
-	_SysFatalErrorHandler(_NANO_ERR_HW_EXCEPTION, &_default_esf);
+#ifdef CONFIG_USERSPACE
+	for (int i = 0; i < ARRAY_SIZE(exceptions); i++) {
+		u32_t start = (u32_t)exceptions[i].start;
+		u32_t end = (u32_t)exceptions[i].end;
+
+		if (esf->pc >= start && esf->pc < end) {
+			esf->pc = (u32_t)(exceptions[i].fixup);
+			return;
+		}
+	}
+#endif
+
+	vector = _ARC_V2_ECR_VECTOR(ecr);
+	code =  _ARC_V2_ECR_CODE(ecr);
+	parameter = _ARC_V2_ECR_PARAMETER(ecr);
+
+
+	/* exception raised by kernel */
+	if (vector == 0x9 && parameter == _TRAP_S_CALL_RUNTIME_EXCEPT) {
+		_NanoFatalErrorHandler(esf->r0, esf);
+		return;
+	}
+
+	printk("Exception vector: 0x%x, cause code: 0x%x, parameter 0x%x\n",
+	       vector, code, parameter);
+	printk("Address 0x%x\n", exc_addr);
+#ifdef CONFIG_ARC_STACK_CHECKING
+	/* Vector 6 = EV_ProV. Regardless of code, parameter 2 means stack
+	 * check violation
+	 */
+	if (vector == 6 && parameter == 2) {
+		_NanoFatalErrorHandler(_NANO_ERR_STACK_CHK_FAIL, esf);
+		return;
+	}
+#endif
+	_NanoFatalErrorHandler(_NANO_ERR_HW_EXCEPTION, esf);
 }

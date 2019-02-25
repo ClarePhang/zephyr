@@ -12,6 +12,10 @@
 
 #include "mpu6050.h"
 
+#define LOG_LEVEL CONFIG_SENSOR_LOG_LEVEL
+#include <logging/log.h>
+LOG_MODULE_DECLARE(MPU6050);
+
 int mpu6050_trigger_set(struct device *dev,
 			const struct sensor_trigger *trig,
 			sensor_trigger_handler_t handler)
@@ -37,7 +41,7 @@ int mpu6050_trigger_set(struct device *dev,
 }
 
 static void mpu6050_gpio_callback(struct device *dev,
-				  struct gpio_callback *cb, uint32_t pins)
+				  struct gpio_callback *cb, u32_t pins)
 {
 	struct mpu6050_data *drv_data =
 		CONTAINER_OF(cb, struct mpu6050_data, gpio_cb);
@@ -98,7 +102,7 @@ int mpu6050_init_interrupt(struct device *dev)
 	/* setup data ready gpio interrupt */
 	drv_data->gpio = device_get_binding(CONFIG_MPU6050_GPIO_DEV_NAME);
 	if (drv_data->gpio == NULL) {
-		SYS_LOG_ERR("Failed to get pointer to %s device",
+		LOG_ERR("Failed to get pointer to %s device",
 			    CONFIG_MPU6050_GPIO_DEV_NAME);
 		return -EINVAL;
 	}
@@ -112,23 +116,25 @@ int mpu6050_init_interrupt(struct device *dev)
 			   BIT(CONFIG_MPU6050_GPIO_PIN_NUM));
 
 	if (gpio_add_callback(drv_data->gpio, &drv_data->gpio_cb) < 0) {
-		SYS_LOG_ERR("Failed to set gpio callback");
+		LOG_ERR("Failed to set gpio callback");
 		return -EIO;
 	}
 
 	/* enable data ready interrupt */
 	if (i2c_reg_write_byte(drv_data->i2c, CONFIG_MPU6050_I2C_ADDR,
 			       MPU6050_REG_INT_EN, MPU6050_DRDY_EN) < 0) {
-		SYS_LOG_ERR("Failed to enable data ready interrupt.");
+		LOG_ERR("Failed to enable data ready interrupt.");
 		return -EIO;
 	}
 
 #if defined(CONFIG_MPU6050_TRIGGER_OWN_THREAD)
 	k_sem_init(&drv_data->gpio_sem, 0, UINT_MAX);
 
-	k_thread_spawn(drv_data->thread_stack, CONFIG_MPU6050_THREAD_STACK_SIZE,
-		    (k_thread_entry_t)mpu6050_thread, POINTER_TO_INT(dev),
-		    0, NULL, K_PRIO_COOP(CONFIG_MPU6050_THREAD_PRIORITY), 0, 0);
+	k_thread_create(&drv_data->thread, drv_data->thread_stack,
+			CONFIG_MPU6050_THREAD_STACK_SIZE,
+			(k_thread_entry_t)mpu6050_thread, dev,
+			0, NULL, K_PRIO_COOP(CONFIG_MPU6050_THREAD_PRIORITY),
+			0, 0);
 #elif defined(CONFIG_MPU6050_TRIGGER_GLOBAL_THREAD)
 	drv_data->work.handler = mpu6050_work_cb;
 	drv_data->dev = dev;

@@ -30,6 +30,7 @@ void sema_test_init(void)
  *
  * @param par1   Ignored parameter.
  * @param par2   Number of test loops.
+ * @param par3   Unused
  *
  * @return N/A
  */
@@ -54,6 +55,7 @@ void sema_thread1(void *par1, void *par2, void *par3)
  *
  * @param par1   Address of the counter.
  * @param par2   Number of test cycles.
+ * @param par3   Unused
  *
  * @return N/A
  */
@@ -78,6 +80,7 @@ void sema_thread2(void *par1, void *par2, void *par3)
  *
  * @param par1   Address of the counter.
  * @param par2   Number of test cycles.
+ * @param par3   Unused
  *
  * @return N/A
  */
@@ -107,7 +110,7 @@ void sema_thread3(void *par1, void *par2, void *par3)
  */
 int sema_test(void)
 {
-	uint32_t t;
+	u32_t t;
 	int i = 0;
 	int return_value = 0;
 
@@ -123,11 +126,11 @@ int sema_test(void)
 
 	t = BENCH_START();
 
-	k_thread_spawn(thread_stack1, STACK_SIZE, sema_thread1,
-			 NULL, (void *) NUMBER_OF_LOOPS, NULL,
+	k_thread_create(&thread_data1, thread_stack1, STACK_SIZE, sema_thread1,
+			 NULL, (void *) number_of_loops, NULL,
 			 K_PRIO_COOP(3), 0, K_NO_WAIT);
-	k_thread_spawn(thread_stack2, STACK_SIZE, sema_thread2,
-			 (void *) &i, (void *) NUMBER_OF_LOOPS, NULL,
+	k_thread_create(&thread_data2, thread_stack2, STACK_SIZE, sema_thread2,
+			 (void *) &i, (void *) number_of_loops, NULL,
 			 K_PRIO_COOP(3), 0, K_NO_WAIT);
 
 	t = TIME_STAMP_DELTA_GET(t);
@@ -148,11 +151,11 @@ int sema_test(void)
 
 	t = BENCH_START();
 
-	k_thread_spawn(thread_stack1, STACK_SIZE, sema_thread1,
-			 NULL, (void *) NUMBER_OF_LOOPS, NULL,
+	k_thread_create(&thread_data1, thread_stack1, STACK_SIZE, sema_thread1,
+			 NULL, (void *) number_of_loops, NULL,
 			 K_PRIO_COOP(3), 0, K_NO_WAIT);
-	k_thread_spawn(thread_stack2, STACK_SIZE, sema_thread3,
-			 (void *) &i, (void *) NUMBER_OF_LOOPS, NULL,
+	k_thread_create(&thread_data2, thread_stack2, STACK_SIZE, sema_thread3,
+			 (void *) &i, (void *) number_of_loops, NULL,
 			 K_PRIO_COOP(3), 0, K_NO_WAIT);
 
 	t = TIME_STAMP_DELTA_GET(t);
@@ -173,10 +176,10 @@ int sema_test(void)
 
 	t = BENCH_START();
 
-	k_thread_spawn(thread_stack1, STACK_SIZE, sema_thread1,
-			 NULL, (void *) NUMBER_OF_LOOPS, NULL,
+	k_thread_create(&thread_data1, thread_stack1, STACK_SIZE, sema_thread1,
+			 NULL, (void *) number_of_loops, NULL,
 			 K_PRIO_COOP(3), 0, K_NO_WAIT);
-	for (i = 0; i < NUMBER_OF_LOOPS; i++) {
+	for (i = 0; i < number_of_loops; i++) {
 		k_sem_give(&sem1);
 		k_sem_take(&sem2, K_FOREVER);
 	}

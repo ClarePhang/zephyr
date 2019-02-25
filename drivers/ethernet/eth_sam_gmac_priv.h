@@ -7,37 +7,50 @@
  * @brief Atmel SAM MCU family Ethernet MAC (GMAC) driver.
  */
 
-#ifndef _ETH_SAM_GMAC_PRIV_H_
-#define _ETH_SAM_GMAC_PRIV_H_
+#ifndef ZEPHYR_DRIVERS_ETHERNET_ETH_SAM_GMAC_PRIV_H_
+#define ZEPHYR_DRIVERS_ETHERNET_ETH_SAM_GMAC_PRIV_H_
 
-#include <stdint.h>
+#include <zephyr/types.h>
+
+/* This option enables support to push multiple packets to the DMA engine.
+ * This currently doesn't work given the current version of net_pkt or
+ * net_buf does not allowed access from multiple threads. This option is
+ * therefore currenlty disabled.
+ */
+#define GMAC_MULTIPLE_TX_PACKETS 0
 
 #define GMAC_MTU 1500
 #define GMAC_FRAME_SIZE_MAX (GMAC_MTU + 18)
 
+/** Cache alignment */
+#define GMAC_DCACHE_ALIGNMENT             32
 /** Memory alignment of the RX/TX Buffer Descriptor List */
 #define GMAC_DESC_ALIGNMENT               4
 /** Total number of queues supported by GMAC hardware module */
 #define GMAC_QUEUE_NO                     3
-/** RX descriptors count for main queue */
-#define MAIN_QUEUE_RX_DESC_COUNT CONFIG_ETH_SAM_GMAC_NBUF_RX_DATA_COUNT
-/** TX descriptors count for main queue */
-#define MAIN_QUEUE_TX_DESC_COUNT (CONFIG_NET_NBUF_TX_DATA_COUNT + 1)
-/** RX/TX descriptors count for priority queues */
-#define PRIORITY_QUEUE_DESC_COUNT         1
+/** Number of priority queues used */
+#define GMAC_PRIORITY_QUEUE_NO            (CONFIG_ETH_SAM_GMAC_QUEUES - 1)
 
-/* FIXME change to
- * #if __DCACHE_PRESENT == 1
- * when cache support is added
- */
-#if 0
-#define DCACHE_INVALIDATE(addr, size) \
-		SCB_InvalidateDCache_by_Addr((uint32_t *)addr, size)
-#define DCACHE_CLEAN(addr, size) \
-		SCB_CleanDCache_by_Addr((uint32_t *)addr, size)
+/** RX descriptors count for main queue */
+#define MAIN_QUEUE_RX_DESC_COUNT CONFIG_ETH_SAM_GMAC_BUF_RX_COUNT
+/** TX descriptors count for main queue */
+#define MAIN_QUEUE_TX_DESC_COUNT (CONFIG_NET_BUF_TX_COUNT + 1)
+
+/** RX/TX descriptors count for priority queues */
+#if GMAC_PRIORITY_QUEUE_NO == 2
+#define PRIORITY_QUEUE2_RX_DESC_COUNT         MAIN_QUEUE_RX_DESC_COUNT
+#define PRIORITY_QUEUE2_TX_DESC_COUNT         MAIN_QUEUE_TX_DESC_COUNT
 #else
-#define DCACHE_INVALIDATE(addr, size) { ; }
-#define DCACHE_CLEAN(addr, size) { ; }
+#define PRIORITY_QUEUE2_RX_DESC_COUNT         1
+#define PRIORITY_QUEUE2_TX_DESC_COUNT         1
+#endif
+
+#if GMAC_PRIORITY_QUEUE_NO >= 1
+#define PRIORITY_QUEUE1_RX_DESC_COUNT         MAIN_QUEUE_RX_DESC_COUNT
+#define PRIORITY_QUEUE1_TX_DESC_COUNT         MAIN_QUEUE_TX_DESC_COUNT
+#else
+#define PRIORITY_QUEUE1_RX_DESC_COUNT         1
+#define PRIORITY_QUEUE1_TX_DESC_COUNT         1
 #endif
 
 /*
@@ -117,6 +130,14 @@
 		(GMAC_IER_RCOMP | GMAC_INT_RX_ERR_BITS | \
 		 GMAC_IER_TCOMP | GMAC_INT_TX_ERR_BITS | GMAC_IER_HRESP)
 
+#define GMAC_INTPQ_RX_ERR_BITS \
+		(GMAC_IERPQ_RXUBR | GMAC_IERPQ_ROVR)
+#define GMAC_INTPQ_TX_ERR_BITS \
+		(GMAC_IERPQ_RLEX | GMAC_IERPQ_TFC)
+#define GMAC_INTPQ_EN_FLAGS \
+		(GMAC_IERPQ_RCOMP | GMAC_INTPQ_RX_ERR_BITS | \
+		 GMAC_IERPQ_TCOMP | GMAC_INTPQ_TX_ERR_BITS | GMAC_IERPQ_HRESP)
+
 /** List of GMAC queues */
 enum queue_idx {
 	GMAC_QUE_0,  /** Main queue */
@@ -126,41 +147,51 @@ enum queue_idx {
 
 /** Minimal ring buffer implementation */
 struct ring_buf {
-	uint32_t *buf;
-	uint16_t len;
-	uint16_t head;
-	uint16_t tail;
+	u32_t *buf;
+	u16_t len;
+	u16_t head;
+	u16_t tail;
 };
 
 /** Receive/transmit buffer descriptor */
 struct gmac_desc {
-	uint32_t w0;
-	uint32_t w1;
+	u32_t w0;
+	u32_t w1;
 };
 
 /** Ring list of receive/transmit buffer descriptors */
 struct gmac_desc_list {
 	struct gmac_desc *buf;
-	uint16_t len;
-	uint16_t head;
-	uint16_t tail;
+	u16_t len;
+	u16_t head;
+	u16_t tail;
 };
 
 /** GMAC Queue data */
 struct gmac_queue {
 	struct gmac_desc_list rx_desc_list;
 	struct gmac_desc_list tx_desc_list;
+#if GMAC_MULTIPLE_TX_PACKETS == 1
 	struct k_sem tx_desc_sem;
+#else
+	struct k_sem tx_sem;
+#endif
 
-	struct ring_buf rx_nbuf_list;
+	struct net_buf **rx_frag_list;
+
+#if GMAC_MULTIPLE_TX_PACKETS == 1
+	struct ring_buf tx_frag_list;
+#if defined(CONFIG_PTP_CLOCK_SAM_GMAC)
 	struct ring_buf tx_frames;
+#endif
+#endif
 
 	/** Number of RX frames dropped by the driver */
-	volatile uint32_t err_rx_frames_dropped;
+	volatile u32_t err_rx_frames_dropped;
 	/** Number of times receive queue was flushed */
-	volatile uint32_t err_rx_flushed_count;
+	volatile u32_t err_rx_flushed_count;
 	/** Number of times transmit queue was flushed */
-	volatile uint32_t err_tx_flushed_count;
+	volatile u32_t err_tx_flushed_count;
 
 	enum queue_idx que_idx;
 };
@@ -168,9 +199,9 @@ struct gmac_queue {
 /* Device constant configuration parameters */
 struct eth_sam_dev_cfg {
 	Gmac *regs;
-	uint32_t periph_id;
+	u32_t periph_id;
 	const struct soc_gpio_pin *pin_list;
-	uint32_t pin_list_size;
+	u32_t pin_list_size;
 	void (*config_func)(void);
 	struct phy_sam_gmac_dev phy;
 };
@@ -178,7 +209,10 @@ struct eth_sam_dev_cfg {
 /* Device run time data */
 struct eth_sam_dev_data {
 	struct net_if *iface;
-	uint8_t mac_addr[6];
+#if defined(CONFIG_PTP_CLOCK_SAM_GMAC)
+	struct device *ptp_clock;
+#endif
+	u8_t mac_addr[6];
 	struct gmac_queue queue_list[GMAC_QUEUE_NO];
 };
 
@@ -187,4 +221,4 @@ struct eth_sam_dev_data {
 #define DEV_DATA(dev) \
 	((struct eth_sam_dev_data *const)(dev)->driver_data)
 
-#endif /* _ETH_SAM_GMAC_PRIV_H_ */
+#endif /* ZEPHYR_DRIVERS_ETHERNET_ETH_SAM_GMAC_PRIV_H_ */

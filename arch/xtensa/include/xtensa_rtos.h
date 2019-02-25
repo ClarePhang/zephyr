@@ -21,8 +21,8 @@
  * Should be included by all Xtensa generic and RTOS port-specific sources.
  */
 
-#ifndef XTENSA_RTOS_H
-#define XTENSA_RTOS_H
+#ifndef ZEPHYR_ARCH_XTENSA_INCLUDE_XTENSA_RTOS_H_
+#define ZEPHYR_ARCH_XTENSA_INCLUDE_XTENSA_RTOS_H_
 
 #ifdef __ASSEMBLER__
 #include    <xtensa/coreasm.h>
@@ -32,24 +32,23 @@
 
 #include    <xtensa/corebits.h>
 #include    <xtensa/config/system.h>
-#include    <xtensa/simcall.h>
 
 
 /*
- * Convert FreeRTOSConfig definitions to XTENSA definitions.
- * However these can still be overridden from the command line.
+ * Convert Zephyr definitions to XTENSA definitions.
  */
 
-#ifndef XT_SIMULATOR
-  #if CONFIG_SIMULATOR_XTENSA
-    #define XT_SIMULATOR             1  /* Simulator mode */
-  #endif
+#undef XT_SIMULATOR
+#undef XT_BOARD
+#ifdef CONFIG_SIMULATOR_XTENSA
+  #define XT_SIMULATOR 1
+#else
+  #define XT_BOARD 1
 #endif
 
-#ifndef XT_BOARD
-  #if CONFIG_BOARD_XTENSA
-    #define XT_BOARD                 1  /* Board mode */
-  #endif
+#ifdef CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC
+  #undef XT_CLOCK_FREQ
+  #define XT_CLOCK_FREQ CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC
 #endif
 
 #ifndef XT_TIMER_INDEX
@@ -128,7 +127,12 @@
  * RTOS may optionally define XT_TICK_PER_SEC in its own way (eg. macro).
  */
 #define XT_RTOS_TIMER_INT   _zxt_timer_int
-#define XT_TICK_PER_SEC     CONFIG_SYS_CLOCK_TICKS_PER_SEC
+
+#if CONFIG_TICKLESS_KERNEL
+#define XT_TICK_PER_SEC		1000
+#else
+#define XT_TICK_PER_SEC		CONFIG_SYS_CLOCK_TICKS_PER_SEC
+#endif	/* CONFIG_TICKLESS_KERNEL */
 
 /*
  * Return in a15 the base address of the co-processor state save area for the
@@ -199,4 +203,4 @@ extern  volatile XT_INTEXC_HOOK _xt_intexc_hooks[XT_INTEXC_HOOK_NUM];
 #include    "xtensa_timer.h"
 #endif
 
-#endif /* XTENSA_RTOS_H */
+#endif /* ZEPHYR_ARCH_XTENSA_INCLUDE_XTENSA_RTOS_H_ */

@@ -215,26 +215,29 @@
 
 struct eth_enc28j60_config {
 	const char *gpio_port;
-	uint8_t gpio_pin;
+	u8_t gpio_pin;
 	const char *spi_port;
-	uint32_t spi_freq;
-	uint8_t spi_slave;
-	uint8_t full_duplex;
-	int32_t timeout;
+	u8_t spi_cs_pin;
+	const char *spi_cs_port;
+	u32_t spi_freq;
+	u8_t spi_slave;
+	u8_t full_duplex;
+	s32_t timeout;
 };
 
 struct eth_enc28j60_runtime {
 	struct net_if *iface;
-	char __stack thread_stack[CONFIG_ETH_ENC28J60_RX_THREAD_STACK_SIZE];
+	K_THREAD_STACK_MEMBER(thread_stack,
+			      CONFIG_ETH_ENC28J60_RX_THREAD_STACK_SIZE);
+	struct k_thread thread;
+	u8_t mac_address[6];
 	struct device *gpio;
 	struct device *spi;
+	struct spi_cs_control spi_cs;
+	struct spi_config spi_cfg;
 	struct gpio_callback gpio_cb;
-	uint8_t mem_buf[MAX_BUFFER_LENGTH + 1];
-	uint8_t  tx_tsv[TSV_SIZE];
-	uint8_t  rx_rsv[RSV_SIZE];
 	struct k_sem tx_rx_sem;
 	struct k_sem int_sem;
-	struct k_sem spi_sem;
 };
 
 #endif /*_ENC28J60_*/

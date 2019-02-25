@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __TELNET_CONSOLE_H__
-#define __TELNET_CONSOLE_H__
+#ifndef ZEPHYR_INCLUDE_DRIVERS_CONSOLE_TELNET_CONSOLE_H_
+#define ZEPHYR_INCLUDE_DRIVERS_CONSOLE_TELNET_CONSOLE_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,10 +28,10 @@ extern "C" {
  *  @return N/A
  */
 void telnet_register_input(struct k_fifo *avail, struct k_fifo *lines,
-			   uint8_t (*completion)(char *str, uint8_t len));
+			   u8_t (*completion)(char *str, u8_t len));
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __TELNET_CONSOLE_H__ */
+#endif /* ZEPHYR_INCLUDE_DRIVERS_CONSOLE_TELNET_CONSOLE_H_ */

@@ -8,11 +8,16 @@
 #include <i2c.h>
 #include <sensor.h>
 #include <misc/__assert.h>
+#include <logging/log.h>
 
 #include "max44009.h"
 
-static int max44009_reg_read(struct max44009_data *drv_data, uint8_t reg,
-			     uint8_t *val, bool send_stop)
+#define LOG_LEVEL CONFIG_SENSOR_LOG_LEVEL
+LOG_MODULE_REGISTER(MAX44009);
+
+static int max44009_reg_read(struct max44009_data *drv_data, u8_t reg,
+
+			     u8_t *val, bool send_stop)
 {
 	struct i2c_msg msgs[2] = {
 		{
@@ -38,20 +43,20 @@ static int max44009_reg_read(struct max44009_data *drv_data, uint8_t reg,
 	return 0;
 }
 
-static int max44009_reg_write(struct max44009_data *drv_data, uint8_t reg,
-			      uint8_t val)
+static int max44009_reg_write(struct max44009_data *drv_data, u8_t reg,
+			      u8_t val)
 {
-	uint8_t tx_buf[2] = {reg, val};
+	u8_t tx_buf[2] = {reg, val};
 
 	return i2c_write(drv_data->i2c, tx_buf, sizeof(tx_buf),
 			 MAX44009_I2C_ADDRESS);
 }
 
-static int max44009_reg_update(struct max44009_data *drv_data, uint8_t reg,
-			       uint8_t mask, uint8_t val)
+static int max44009_reg_update(struct max44009_data *drv_data, u8_t reg,
+			       u8_t mask, u8_t val)
 {
-	uint8_t old_val = 0;
-	uint8_t new_val = 0;
+	u8_t old_val = 0U;
+	u8_t new_val = 0U;
 
 	if (max44009_reg_read(drv_data, reg, &old_val, true) != 0) {
 		return -EIO;
@@ -68,8 +73,8 @@ static int max44009_attr_set(struct device *dev, enum sensor_channel chan,
 			     const struct sensor_value *val)
 {
 	struct max44009_data *drv_data = dev->driver_data;
-	uint8_t value;
-	uint32_t cr;
+	u8_t value;
+	u32_t cr;
 
 	if (chan != SENSOR_CHAN_LIGHT) {
 		return -ENOTSUP;
@@ -83,7 +88,7 @@ static int max44009_attr_set(struct device *dev, enum sensor_channel chan,
 		/* the sensor supports 1.25Hz or continuous conversion */
 		switch (cr) {
 		case 1250:
-			value = 0;
+			value = 0U;
 			break;
 		default:
 			value = MAX44009_CONTINUOUS_SAMPLING;
@@ -92,7 +97,7 @@ static int max44009_attr_set(struct device *dev, enum sensor_channel chan,
 		if (max44009_reg_update(drv_data, MAX44009_REG_CONFIG,
 					MAX44009_SAMPLING_CONTROL_BIT,
 					value) != 0) {
-			SYS_LOG_DBG("Failed to set attribute!");
+			LOG_DBG("Failed to set attribute!");
 			return -EIO;
 		}
 
@@ -108,11 +113,11 @@ static int max44009_attr_set(struct device *dev, enum sensor_channel chan,
 static int max44009_sample_fetch(struct device *dev, enum sensor_channel chan)
 {
 	struct max44009_data *drv_data = dev->driver_data;
-	uint8_t val_h, val_l;
+	u8_t val_h, val_l;
 
 	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL || chan == SENSOR_CHAN_LIGHT);
 
-	drv_data->sample = 0;
+	drv_data->sample = 0U;
 
 	if (max44009_reg_read(drv_data, MAX44009_REG_LUX_HIGH_BYTE, &val_h,
 			      false) != 0) {
@@ -124,7 +129,7 @@ static int max44009_sample_fetch(struct device *dev, enum sensor_channel chan)
 		return -EIO;
 	}
 
-	drv_data->sample = ((uint16_t)val_h) << 8;
+	drv_data->sample = ((u16_t)val_h) << 8;
 	drv_data->sample += val_l;
 
 	return 0;
@@ -134,7 +139,7 @@ static int max44009_channel_get(struct device *dev, enum sensor_channel chan,
 				struct sensor_value *val)
 {
 	struct max44009_data *drv_data = dev->driver_data;
-	uint32_t uval;
+	u32_t uval;
 
 	if (chan != SENSOR_CHAN_LIGHT) {
 		return -ENOTSUP;
@@ -169,18 +174,16 @@ int max44009_init(struct device *dev)
 
 	drv_data->i2c = device_get_binding(CONFIG_MAX44009_I2C_DEV_NAME);
 	if (drv_data->i2c == NULL) {
-		SYS_LOG_DBG("Failed to get pointer to %s device!",
+		LOG_DBG("Failed to get pointer to %s device!",
 			    CONFIG_MAX44009_I2C_DEV_NAME);
 		return -EINVAL;
 	}
-
-	dev->driver_api = &max44009_driver_api;
 
 	return 0;
 }
 
 static struct max44009_data max44009_drv_data;
 
-DEVICE_INIT(max44009, CONFIG_MAX44009_DRV_NAME, max44009_init,
+DEVICE_AND_API_INIT(max44009, CONFIG_MAX44009_DRV_NAME, max44009_init,
 	    &max44009_drv_data, NULL, POST_KERNEL,
-	    CONFIG_SENSOR_INIT_PRIORITY);
+	    CONFIG_SENSOR_INIT_PRIORITY, &max44009_driver_api);

@@ -15,32 +15,14 @@
 #include <toolchain.h>
 #include <kernel_structs.h>
 #include <wait_q.h>
-#ifdef CONFIG_INIT_STACKS
-#include <string.h>
-#endif /* CONFIG_INIT_STACKS */
 
-#if defined(CONFIG_THREAD_MONITOR)
-/*
- * Add a thread to the kernel's list of active threads.
- */
-static ALWAYS_INLINE void thread_monitor_init(struct k_thread *thread)
-{
-	unsigned int key;
-
-	key = irq_lock();
-	thread->next_thread = _kernel.threads;
-	_kernel.threads = thread;
-	irq_unlock(key);
-}
-#else
-#define thread_monitor_init(thread) \
-	do {/* do nothing */     \
-	} while ((0))
-#endif /* CONFIG_THREAD_MONITOR */
+#ifdef CONFIG_USERSPACE
+extern u8_t *_k_priv_stack_find(void *obj);
+#endif
 
 /**
  *
- * @brief Intialize a new thread from its stack space
+ * @brief Initialize a new thread from its stack space
  *
  * The control structure (thread) is put at the lower address of the stack. An
  * initial context, to be "restored" by __pendsv(), is put at the other end of
@@ -68,60 +50,56 @@ static ALWAYS_INLINE void thread_monitor_init(struct k_thread *thread)
  * @return N/A
  */
 
-void _new_thread(char *pStackMem, size_t stackSize,
-		 _thread_entry_t pEntry,
+void _new_thread(struct k_thread *thread, k_thread_stack_t *stack,
+		 size_t stackSize, k_thread_entry_t pEntry,
 		 void *parameter1, void *parameter2, void *parameter3,
-		 int priority, unsigned options)
+		 int priority, unsigned int options)
 {
+	char *pStackMem = K_THREAD_STACK_BUFFER(stack);
+
 	_ASSERT_VALID_PRIO(priority, pEntry);
 
-	__ASSERT(!((uint32_t)pStackMem & (STACK_ALIGN - 1)),
-		 "stack is not aligned properly\n"
-		 "%d-byte alignment required\n", STACK_ALIGN);
-
+#if CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT
+	char *stackEnd = pStackMem + stackSize - MPU_GUARD_ALIGN_AND_SIZE;
+#else
 	char *stackEnd = pStackMem + stackSize;
-	struct __esf *pInitCtx;
-	struct k_thread *thread = (struct k_thread *) pStackMem;
-
-#ifdef CONFIG_INIT_STACKS
-	memset(pStackMem, 0xaa, stackSize);
 #endif
+	struct __esf *pInitCtx;
+
+	_new_thread_init(thread, pStackMem, stackEnd - pStackMem, priority,
+			 options);
 
 	/* carve the thread entry struct from the "base" of the stack */
+	pInitCtx = (struct __esf *)(STACK_ROUND_DOWN(stackEnd -
+						     sizeof(struct __esf)));
 
-	pInitCtx = (struct __esf *)(STACK_ROUND_DOWN(stackEnd) -
-				    sizeof(struct __esf));
+#if CONFIG_USERSPACE
+	if ((options & K_USER) != 0) {
+		pInitCtx->pc = (u32_t)_arch_user_mode_enter;
+	} else {
+		pInitCtx->pc = (u32_t)_thread_entry;
+	}
+#else
+	pInitCtx->pc = (u32_t)_thread_entry;
+#endif
 
-	pInitCtx->pc = ((uint32_t)_thread_entry) & 0xfffffffe;
-	pInitCtx->a1 = (uint32_t)pEntry;
-	pInitCtx->a2 = (uint32_t)parameter1;
-	pInitCtx->a3 = (uint32_t)parameter2;
-	pInitCtx->a4 = (uint32_t)parameter3;
+	/* force ARM mode by clearing LSB of address */
+	pInitCtx->pc &= 0xfffffffe;
+
+	pInitCtx->a1 = (u32_t)pEntry;
+	pInitCtx->a2 = (u32_t)parameter1;
+	pInitCtx->a3 = (u32_t)parameter2;
+	pInitCtx->a4 = (u32_t)parameter3;
 	pInitCtx->xpsr =
 		0x01000000UL; /* clear all, thumb bit is 1, even if RO */
 
-	_init_thread_base(&thread->base, priority, _THREAD_PRESTART, options);
-
-	/* static threads overwrite it afterwards with real value */
-	thread->init_data = NULL;
-	thread->fn_abort = NULL;
-
-#ifdef CONFIG_THREAD_CUSTOM_DATA
-	/* Initialize custom data field (value is opaque to kernel) */
-
-	thread->custom_data = NULL;
-#endif
-
-#ifdef CONFIG_THREAD_MONITOR
-	/*
-	 * In debug mode thread->entry give direct access to the thread entry
-	 * and the corresponding parameters.
-	 */
-	thread->entry = (struct __thread_entry *)(pInitCtx);
-#endif
-
-	thread->callee_saved.psp = (uint32_t)pInitCtx;
+	thread->callee_saved.psp = (u32_t)pInitCtx;
 	thread->arch.basepri = 0;
+
+#if CONFIG_USERSPACE
+	thread->arch.mode = 0;
+	thread->arch.priv_stack_start = 0;
+#endif
 
 	/* swap_return_value can contain garbage */
 
@@ -129,6 +107,61 @@ void _new_thread(char *pStackMem, size_t stackSize,
 	 * initial values in all other registers/thread entries are
 	 * irrelevant.
 	 */
-
-	thread_monitor_init(thread);
 }
+
+#ifdef CONFIG_USERSPACE
+
+FUNC_NORETURN void _arch_user_mode_enter(k_thread_entry_t user_entry,
+	void *p1, void *p2, void *p3)
+{
+
+	/* Set up privileged stack before entering user mode */
+	_current->arch.priv_stack_start =
+		(u32_t)_k_priv_stack_find(_current->stack_obj);
+
+	/* Truncate the stack size with the MPU region granularity. */
+	_current->stack_info.size &=
+		~(CONFIG_ARM_MPU_REGION_MIN_ALIGN_AND_SIZE - 1);
+
+	_arm_userspace_enter(user_entry, p1, p2, p3,
+			     (u32_t)_current->stack_info.start,
+			     _current->stack_info.size);
+	CODE_UNREACHABLE;
+}
+
+#endif
+
+#if defined(CONFIG_BUILTIN_STACK_GUARD)
+/*
+ * @brief Configure ARM built-in stack guard
+ *
+ * This function configures per thread stack guards by reprogramming
+ * the built-in Process Stack Pointer Limit Register (PSPLIM).
+ * The functionality is meant to be used during context switch.
+ *
+ * @param thread thread info data structure.
+ */
+void configure_builtin_stack_guard(struct k_thread *thread)
+{
+#if defined(CONFIG_USERSPACE)
+	if ((thread->arch.mode & CONTROL_nPRIV_Msk) != 0) {
+		/* Only configure stack limit for threads in privileged mode
+		 * (i.e supervisor threads or user threads doing system call).
+		 * User threads executing in user mode do not require a stack
+		 * limit protection.
+		 */
+		return;
+	}
+	u32_t guard_start = thread->arch.priv_stack_start ?
+			    (u32_t)thread->arch.priv_stack_start :
+			    (u32_t)thread->stack_obj;
+#else
+	u32_t guard_start = thread->stack_info.start;
+#endif
+#if defined(CONFIG_CPU_CORTEX_M_HAS_SPLIM)
+	__set_PSPLIM(guard_start);
+#else
+#error "Built-in PSP limit checks not supported by HW"
+#endif
+}
+#endif /* CONFIG_BUILTIN_STACK_GUARD */

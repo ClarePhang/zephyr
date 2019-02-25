@@ -9,7 +9,7 @@
  * This module provides an implementation of the architecture-specific
  * k_cpu_idle() primitive required by the kernel idle loop component.
  * It can be called within an implementation of _sys_power_save_idle(),
- * which is provided for the microkernel by the platform.
+ * which is provided for the kernel by the platform.
  *
  * The module also provides an implementation of k_cpu_atomic_idle(), which
  * atomically re-enables interrupts and enters low power mode.
@@ -24,11 +24,11 @@
  */
 
 #include <zephyr.h>
-#include <logging/kernel_event_logger.h>
+#include <tracing.h>
 #include <arch/cpu.h>
 
 #ifdef CONFIG_BOOT_TIME_MEASUREMENT
-extern uint64_t __idle_tsc;  /* timestamp when CPU went idle */
+extern u64_t __idle_time_stamp;  /* timestamp when CPU went idle */
 #endif
 
 /**
@@ -36,7 +36,7 @@ extern uint64_t __idle_tsc;  /* timestamp when CPU went idle */
  * @brief Power save idle routine for IA-32
  *
  * This function will be called by the kernel idle loop or possibly within
- * an implementation of _sys_power_save_idle in the microkernel when the
+ * an implementation of _sys_power_save_idle in the kernel when the
  * '_sys_power_save_flag' variable is non-zero.  The IA-32 'hlt' instruction
  * will be issued causing a low-power consumption sleep mode.
  *
@@ -45,9 +45,9 @@ extern uint64_t __idle_tsc;  /* timestamp when CPU went idle */
 void k_cpu_idle(void)
 {
 	_int_latency_stop();
-	_sys_k_event_logger_enter_sleep();
+	z_sys_trace_idle();
 #if defined(CONFIG_BOOT_TIME_MEASUREMENT)
-	__idle_tsc = _tsc_read();
+	__idle_time_stamp = (u64_t)k_cycle_get_32();
 #endif
 
 	__asm__ volatile (
@@ -68,15 +68,15 @@ void k_cpu_idle(void)
  *    occurs if this requirement is not met.
  *
  * 2) After waking up from the low-power mode, the interrupt lockout state
- *    must be restored as indicated in the 'imask' input parameter.
+ *    must be restored as indicated in the 'key' input parameter.
  *
  * @return N/A
  */
 
-void k_cpu_atomic_idle(unsigned int imask)
+void k_cpu_atomic_idle(unsigned int key)
 {
 	_int_latency_stop();
-	_sys_k_event_logger_enter_sleep();
+	z_sys_trace_idle();
 
 	__asm__ volatile (
 	    "sti\n\t"
@@ -95,7 +95,7 @@ void k_cpu_atomic_idle(unsigned int imask)
 	    "hlt\n\t");
 
 	/* restore interrupt lockout state before returning to caller */
-	if (!(imask & 0x200)) {
+	if ((key & 0x200) == 0) {
 		_int_latency_start();
 		__asm__ volatile("cli");
 	}

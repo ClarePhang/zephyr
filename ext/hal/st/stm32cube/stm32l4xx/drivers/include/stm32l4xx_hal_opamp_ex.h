@@ -2,13 +2,11 @@
   ******************************************************************************
   * @file    stm32l4xx_hal_opamp_ex.h
   * @author  MCD Application Team
-  * @version V1.6.0
-  * @date    28-October-2016
   * @brief   Header file of OPAMP HAL Extended module.
   ******************************************************************************
   * @attention
   *
-  * <h2><center>&copy; COPYRIGHT(c) 2016 STMicroelectronics</center></h2>
+  * <h2><center>&copy; COPYRIGHT(c) 2017 STMicroelectronics</center></h2>
   *
   * Redistribution and use in source and binary forms, with or without modification,
   * are permitted provided that the following conditions are met:
@@ -36,8 +34,8 @@
   */
 
 /* Define to prevent recursive inclusion -------------------------------------*/
-#ifndef __STM32L4xx_HAL_OPAMP_EX_H
-#define __STM32L4xx_HAL_OPAMP_EX_H
+#ifndef STM32L4xx_HAL_OPAMP_EX_H
+#define STM32L4xx_HAL_OPAMP_EX_H
 
 #ifdef __cplusplus
  extern "C" {
@@ -61,14 +59,17 @@
   * @{
   */
 
-#if defined (STM32L471xx) || defined (STM32L475xx) || defined (STM32L476xx) || defined (STM32L485xx) || defined (STM32L486xx)
+#if defined (STM32L471xx) || defined (STM32L475xx) || defined (STM32L476xx) || defined (STM32L485xx) || defined (STM32L486xx) || \
+    defined (STM32L496xx) || defined (STM32L4A6xx) || \
+    defined (STM32L4R5xx) || defined (STM32L4R7xx) || defined (STM32L4R9xx) || defined (STM32L4S5xx) || defined (STM32L4S7xx) || defined (STM32L4S9xx)
+
 
 /* I/O operation functions  *****************************************************/
 /** @addtogroup OPAMPEx_Exported_Functions_Group1 Extended Input and Output operation functions
   * @{
   */
 
-HAL_StatusTypeDef HAL_OPAMPEx_SelfCalibrateAll(OPAMP_HandleTypeDef *hopamp1, OPAMP_HandleTypeDef *hopamp2); 
+HAL_StatusTypeDef HAL_OPAMPEx_SelfCalibrateAll(OPAMP_HandleTypeDef *hopamp1, OPAMP_HandleTypeDef *hopamp2);
 
 /**
   * @}
@@ -79,7 +80,7 @@ HAL_StatusTypeDef HAL_OPAMPEx_SelfCalibrateAll(OPAMP_HandleTypeDef *hopamp1, OPA
 /** @addtogroup OPAMPEx_Exported_Functions_Group2
   * @{
   */
-HAL_StatusTypeDef HAL_OPAMPEx_Unlock(OPAMP_HandleTypeDef *hopamp); 
+HAL_StatusTypeDef HAL_OPAMPEx_Unlock(OPAMP_HandleTypeDef *hopamp);
 /**
   * @}
   */
@@ -100,7 +101,6 @@ HAL_StatusTypeDef HAL_OPAMPEx_Unlock(OPAMP_HandleTypeDef *hopamp);
 }
 #endif
 
-
-#endif /* __STM32L4xx_HAL_OPAMP_EX_H */
+#endif /* STM32L4xx_HAL_OPAMP_EX_H */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

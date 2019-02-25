@@ -6,8 +6,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef _SHIRQ_H_
-#define _SHIRQ_H_
+#ifndef ZEPHYR_INCLUDE_SHARED_IRQ_H_
+#define ZEPHYR_INCLUDE_SHARED_IRQ_H_
 
 #include <autoconf.h>
 
@@ -35,15 +35,15 @@ extern int shared_irq_initialize(struct device *port);
 typedef void (*shared_irq_config_irq_t)(void);
 
 struct shared_irq_config {
-	uint32_t irq_num;
+	u32_t irq_num;
 	shared_irq_config_irq_t config;
-	uint32_t client_count;
+	u32_t client_count;
 };
 
 struct shared_irq_client {
 	struct device *isr_dev;
 	isr_t isr_func;
-	uint32_t enabled;
+	u32_t enabled;
 };
 
 struct shared_irq_runtime {
@@ -92,4 +92,4 @@ static inline int shared_irq_disable(struct device *dev, struct device *isr_dev)
 }
 #endif
 
-#endif /* _SHARED_IRQ_H_ */
+#endif /* ZEPHYR_INCLUDE_SHARED_IRQ_H_ */

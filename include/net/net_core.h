@@ -10,90 +10,112 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __NET_CORE_H
-#define __NET_CORE_H
+#ifndef ZEPHYR_INCLUDE_NET_NET_CORE_H_
+#define ZEPHYR_INCLUDE_NET_NET_CORE_H_
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#include <stdbool.h>
+
+/**
+ * @brief Networking
+ * @defgroup networking Networking
+ * @{
+ * @}
+ */
+
+/**
+ * @brief Network core library
+ * @defgroup net_core Network Core Library
+ * @ingroup networking
+ * @{
+ */
+
+/** @cond INTERNAL_HIDDEN */
+
 /* Network subsystem logging helpers */
+#include <logging/log.h>
 
-#if defined(NET_LOG_ENABLED)
-#if !defined(SYS_LOG_DOMAIN)
-#define SYS_LOG_DOMAIN "net"
-#endif /* !SYS_LOG_DOMAIN */
+#define NET_DBG(fmt, ...) LOG_DBG("(%p): " fmt, k_current_get(), \
+				  ##__VA_ARGS__)
+#define NET_ERR(fmt, ...) LOG_ERR(fmt, ##__VA_ARGS__)
+#define NET_WARN(fmt, ...) LOG_WRN(fmt, ##__VA_ARGS__)
+#define NET_INFO(fmt, ...) LOG_INF(fmt,  ##__VA_ARGS__)
 
-#undef SYS_LOG_LEVEL
-#ifndef NET_SYS_LOG_LEVEL
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_NET_LEVEL
-#else
-#define SYS_LOG_LEVEL NET_SYS_LOG_LEVEL
-#endif /* !NET_SYS_LOG_LEVEL */
+#include <misc/__assert.h>
 
-#define NET_DBG(fmt, ...) SYS_LOG_DBG("(%p): " fmt, k_current_get(), \
-				      ##__VA_ARGS__)
-#define NET_ERR(fmt, ...) SYS_LOG_ERR(fmt, ##__VA_ARGS__)
-#define NET_WARN(fmt, ...) SYS_LOG_WRN(fmt, ##__VA_ARGS__)
-#define NET_INFO(fmt, ...) SYS_LOG_INF(fmt,  ##__VA_ARGS__)
-#define NET_ASSERT(cond) do {				     \
-		if (!(cond)) {					     \
-			NET_ERR("{assert: '" #cond "' failed}");     \
-		} } while (0)
-#define NET_ASSERT_INFO(cond, fmt, ...) do {			     \
-		if (!(cond)) {					     \
-			NET_ERR("{assert: '" #cond "' failed} " fmt, \
-				##__VA_ARGS__);			     \
-		} } while (0)
-#else /* NET_LOG_ENABLED */
-#define NET_DBG(...)
-#define NET_ERR(...)
-#define NET_INFO(...)
-#define NET_WARN(...)
-#define NET_ASSERT(...)
-#define NET_ASSERT_INFO(...)
-#endif /* NET_LOG_ENABLED */
+#define NET_ASSERT(cond) __ASSERT_NO_MSG(cond)
+#define NET_ASSERT_INFO(cond, fmt, ...) __ASSERT(cond, fmt, ##__VA_ARGS__)
+
+/** @endcond */
 
 #include <kernel.h>
 
 struct net_buf;
+struct net_pkt;
 struct net_context;
 struct net_if;
 
-#include <logging/sys_log.h>
 #include <string.h>
 
+/**
+ * @brief Net Verdict
+ */
 enum net_verdict {
-	NET_OK,		/** Packet has been taken care of */
-	NET_CONTINUE,	/** Packet has not been touched,
-			    other part should decide about its fate */
-	NET_DROP,	/** Packet must be dropped */
+	/** Packet has been taken care of. */
+	NET_OK,
+	/** Packet has not been touched, other part should decide about its
+	 * fate.
+	 */
+	NET_CONTINUE,
+	/** Packet must be dropped. */
+	NET_DROP,
 };
 
-/* Called by lower network stack when a network packet has been received */
-int net_recv_data(struct net_if *iface, struct net_buf *buf);
+/**
+ * @brief Called by lower network stack or network device driver when
+ * a network packet has been received. The function will push the packet up in
+ * the network stack for further processing.
+ *
+ * @param iface Network interface where the packet was received.
+ * @param pkt Network packet data.
+ *
+ * @return 0 if ok, <0 if error.
+ */
+int net_recv_data(struct net_if *iface, struct net_pkt *pkt);
 
 /**
  * @brief Send data to network.
  *
  * @details Send data to network. This should not be used normally by
- * applications as it requires that the buffer and fragments are properly
+ * applications as it requires that the network packet is properly
  * constructed.
  *
- * @param buf Network buffer.
+ * @param pkt Network packet.
  *
  * @return 0 if ok, <0 if error. If <0 is returned, then the caller needs
- * to unref the buf in order to avoid buffer leak.
+ * to unref the pkt in order to avoid memory leak.
  */
-int net_send_data(struct net_buf *buf);
+int net_send_data(struct net_pkt *pkt);
 
+/** @cond INTERNAL_HIDDEN */
+/*
+ * The net_stack_info struct needs to be aligned to 32 byte boundary,
+ * otherwise the __net_stack_end will point to wrong location and looping
+ * through net_stack section will go wrong.
+ * So this alignment is a workaround and should eventually be removed.
+ */
 struct net_stack_info {
-	char *stack;
+	k_thread_stack_t *stack;
 	const char *pretty_name;
 	const char *name;
 	size_t orig_size;
 	size_t size;
-};
+	int prio;
+	int idx;
+} __aligned(32);
 
 #if defined(CONFIG_NET_SHELL)
 #define NET_STACK_GET_NAME(pretty, name, sfx) \
@@ -108,98 +130,107 @@ struct net_stack_info {
 		.orig_size = _orig,					\
 		.name = #_name,						\
 		.pretty_name = #_pretty,				\
+		.prio = -1,						\
+		.idx = -1,						\
+	}
+
+/* Note that the stack address needs to be fixed at runtime because
+ * we cannot do it during static initialization. For name we allocate
+ * some space so that the stack index can be printed too.
+ */
+#define NET_STACK_INFO_ADDR_ARRAY(_pretty, _name, _orig, _size, _addr,	\
+				  sfx, _nmemb)				\
+	static struct net_stack_info					\
+	(NET_STACK_GET_NAME(_pretty, _name, sfx))[_nmemb] __used	\
+	__attribute__((__section__(".net_stack.data"))) = {		\
+		[0 ... (_nmemb - 1)] = {				\
+			.stack = _addr[0],				\
+			.size = _size,					\
+			.orig_size = _orig,				\
+			.name = #_name,					\
+			.pretty_name = #_pretty,			\
+			.prio = -1,					\
+			.idx = -1,					\
+		}							\
 	}
 
 #define NET_STACK_INFO(_pretty_name, _name, _orig, _size)		\
 	NET_STACK_INFO_ADDR(_pretty_name, _name, _orig, _size, _name, 0)
 
+#define NET_STACK_INFO_ARRAY(_pretty_name, _name, _orig, _size, _nmemb)	 \
+	NET_STACK_INFO_ADDR_ARRAY(_pretty_name, _name, _orig, _size, _name, \
+				  0, _nmemb)
+
 #define NET_STACK_DEFINE(pretty_name, name, orig, size)			\
-	static char __noinit __stack name[size];			\
+	K_THREAD_STACK_DEFINE(name, size);				\
 	NET_STACK_INFO(pretty_name, name, orig, size)
 
+#define NET_STACK_ARRAY_DEFINE(pretty_name, name, orig, size, nmemb)	\
+	K_THREAD_STACK_ARRAY_DEFINE(name, nmemb, size);			\
+	NET_STACK_INFO_ARRAY(pretty_name, name, orig, size, nmemb)
+
 #else /* CONFIG_NET_SHELL */
+
+#define NET_STACK_GET_NAME(pretty, name, sfx) (name)
 
 #define NET_STACK_INFO(...)
 #define NET_STACK_INFO_ADDR(...)
 
 #define NET_STACK_DEFINE(pretty_name, name, orig, size)			\
-	static char __noinit __stack name[size]
+	K_THREAD_STACK_DEFINE(name, size)
+
+#define NET_STACK_ARRAY_DEFINE(pretty_name, name, orig, size, nmemb)	\
+	K_THREAD_STACK_ARRAY_DEFINE(name, nmemb, size)
 
 #endif /* CONFIG_NET_SHELL */
 
 #define NET_STACK_DEFINE_EMBEDDED(name, size) char name[size]
 
-/** @cond ignore */
 #if defined(CONFIG_INIT_STACKS)
-#include <offsets.h>
+#include <misc/stack.h>
 
-static inline void net_analyze_stack_get_values(unsigned char *stack,
+static inline void net_analyze_stack_get_values(const char *stack,
 						size_t size,
-						unsigned *stack_offset,
 						unsigned *pcnt,
 						unsigned *unused)
 {
-	unsigned i;
-
-	*unused = 0;
-
-	/* The TCS is always placed on a 4-byte aligned boundary - if
-	 * the stack beginning doesn't match that there will be some
-	 * unused bytes in the beginning.
-	 */
-	*stack_offset = K_THREAD_SIZEOF + ((4 - ((unsigned)stack % 4)) % 4);
-
-/* TODO
- * Currently all supported platforms have stack growth down and there is no
- * Kconfig option to configure it so this always build "else" branch.
- * When support for platform with stack direction up (or configurable direction)
- * is added this check should be confirmed that correct Kconfig option is used.
- */
-#if defined(CONFIG_STACK_GROWS_UP)
-	for (i = size - 1; i >= *stack_offset; i--) {
-		if ((unsigned char)stack[i] == 0xaa) {
-			(*unused)++;
-		} else {
-			break;
-		}
-	}
-#else
-	for (i = *stack_offset; i < size; i++) {
-		if ((unsigned char)stack[i] == 0xaa) {
-			(*unused)++;
-		} else {
-			break;
-		}
-	}
-#endif
+	*unused = stack_unused_space_get(stack, size);
 
 	/* Calculate the real size reserved for the stack */
-	size -= *stack_offset;
 	*pcnt = ((size - *unused) * 100) / size;
 }
 
-static inline void net_analyze_stack(const char *name,
-				     unsigned char *stack,
-				     size_t size)
-{
-	unsigned stack_offset, pcnt, unused;
+void net_analyze_stack(const char *name, const char *stack, size_t size);
 
-	net_analyze_stack_get_values(stack, size, &stack_offset,
-				     &pcnt, &unused);
-
-	NET_INFO("net (%p): %s stack real size %zu "
-		 "unused %u usage %zu/%zu (%u %%)",
-		 k_current_get(), name,
-		 size + stack_offset, unused, size - unused, size, pcnt);
-}
 #else
 #define net_analyze_stack(...)
 #define net_analyze_stack_get_values(...)
 #endif
+
+/* Some helper defines for traffic class support */
+#if defined(CONFIG_NET_TC_TX_COUNT) && defined(CONFIG_NET_TC_RX_COUNT)
+#define NET_TC_TX_COUNT CONFIG_NET_TC_TX_COUNT
+#define NET_TC_RX_COUNT CONFIG_NET_TC_RX_COUNT
+
+#if NET_TC_TX_COUNT > NET_TC_RX_COUNT
+#define NET_TC_COUNT NET_TC_TX_COUNT
+#else
+#define NET_TC_COUNT NET_TC_RX_COUNT
+#endif
+#else /* CONFIG_NET_TC_TX_COUNT && CONFIG_NET_TC_RX_COUNT */
+#define NET_TC_TX_COUNT 1
+#define NET_TC_RX_COUNT 1
+#define NET_TC_COUNT 1
+#endif /* CONFIG_NET_TC_TX_COUNT && CONFIG_NET_TC_RX_COUNT */
+
 /* @endcond */
+
+/**
+ * @}
+ */
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __NET_CORE_H */
+#endif /* ZEPHYR_INCLUDE_NET_NET_CORE_H_ */

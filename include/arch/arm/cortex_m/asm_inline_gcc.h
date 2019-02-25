@@ -8,8 +8,8 @@
 
 /* Either public functions or macros or invoked by public functions */
 
-#ifndef _ASM_INLINE_GCC_PUBLIC_GCC_H
-#define _ASM_INLINE_GCC_PUBLIC_GCC_H
+#ifndef ZEPHYR_INCLUDE_ARCH_ARM_CORTEX_M_ASM_INLINE_GCC_H_
+#define ZEPHYR_INCLUDE_ARCH_ARM_CORTEX_M_ASM_INLINE_GCC_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,7 +29,7 @@ extern "C" {
 #define _SCS_ICSR_RETTOBASE (1 << 11)
 
 #else /* !_ASMLANGUAGE */
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <arch/arm/cortex_m/exc.h>
 #include <irq.h>
 
@@ -45,7 +45,7 @@ extern "C" {
  * @return most significant bit set, 0 if @a op is 0
  */
 
-static ALWAYS_INLINE unsigned int find_msb_set(uint32_t op)
+static ALWAYS_INLINE unsigned int find_msb_set(u32_t op)
 {
 	if (!op) {
 		return 0;
@@ -67,7 +67,7 @@ static ALWAYS_INLINE unsigned int find_msb_set(uint32_t op)
  * @return least significant bit set, 0 if @a op is 0
  */
 
-static ALWAYS_INLINE unsigned int find_lsb_set(uint32_t op)
+static ALWAYS_INLINE unsigned int find_lsb_set(u32_t op)
 {
 	return __builtin_ffs(op);
 }
@@ -77,8 +77,8 @@ static ALWAYS_INLINE unsigned int find_lsb_set(uint32_t op)
  *
  * @brief Disable all interrupts on the CPU
  *
- * This routine disables interrupts.  It can be called from either interrupt,
- * task or fiber level.  This routine returns an architecture-dependent
+ * This routine disables interrupts.  It can be called from either interrupt or
+ * thread level.  This routine returns an architecture-dependent
  * lock-out key representing the "interrupt disable state" prior to the call;
  * this key can be passed to irq_unlock() to re-enable interrupts.
  *
@@ -96,7 +96,7 @@ static ALWAYS_INLINE unsigned int find_lsb_set(uint32_t op)
  * thread executes, or while the system is idle.
  *
  * The "interrupt disable state" is an attribute of a thread.  Thus, if a
- * fiber or task disables interrupts and subsequently invokes a kernel
+ * thread disables interrupts and subsequently invokes a kernel
  * routine that causes the calling thread to block, the interrupt
  * disable state will be restored when the thread is later rescheduled
  * for execution.
@@ -106,25 +106,27 @@ static ALWAYS_INLINE unsigned int find_lsb_set(uint32_t op)
  *
  * @internal
  *
- * On Cortex-M3/M4, this function prevents exceptions of priority lower than
- * the two highest priorities from interrupting the CPU.
+ * On ARMv7-M and ARMv8-M Mainline CPUs, this function prevents regular
+ * exceptions (i.e. with interrupt priority lower than or equal to
+ * _EXC_IRQ_DEFAULT_PRIO) from interrupting the CPU. NMI, Faults, SVC,
+ * and Zero Latency IRQs (if supported) may still interrupt the CPU.
  *
- * On Cortex-M0/M0+, this function reads the value of PRIMASK which shows
- * if interrupts are enabled, then disables all interrupts except NMI.
- *
+ * On ARMv6-M and ARMv8-M Baseline CPUs, this function reads the value of
+ * PRIMASK which shows if interrupts are enabled, then disables all interrupts
+ * except NMI.
  */
 
 static ALWAYS_INLINE unsigned int _arch_irq_lock(void)
 {
 	unsigned int key;
 
-#if defined(CONFIG_ARMV6_M)
+#if defined(CONFIG_ARMV6_M_ARMV8_M_BASELINE)
 	__asm__ volatile("mrs %0, PRIMASK;"
 		"cpsid i"
 		: "=r" (key)
 		:
 		: "memory");
-#elif defined(CONFIG_ARMV7_M)
+#elif defined(CONFIG_ARMV7_M_ARMV8_M_MAINLINE)
 	unsigned int tmp;
 
 	__asm__ volatile(
@@ -136,7 +138,7 @@ static ALWAYS_INLINE unsigned int _arch_irq_lock(void)
 		: "memory");
 #else
 #error Unknown ARM architecture
-#endif /* CONFIG_ARMV6_M */
+#endif /* CONFIG_ARMV6_M_ARMV8_M_BASELINE */
 
 	return key;
 }
@@ -150,7 +152,7 @@ static ALWAYS_INLINE unsigned int _arch_irq_lock(void)
  * architecture-dependent lock-out key that is returned by a previous
  * invocation of irq_lock().
  *
- * This routine can be called from either interrupt, task or fiber level.
+ * This routine can be called from either interrupt or thread level.
  *
  * @param key architecture-dependent lock-out key
  *
@@ -163,16 +165,16 @@ static ALWAYS_INLINE unsigned int _arch_irq_lock(void)
 
 static ALWAYS_INLINE void _arch_irq_unlock(unsigned int key)
 {
-#if defined(CONFIG_ARMV6_M)
+#if defined(CONFIG_ARMV6_M_ARMV8_M_BASELINE)
 	if (key) {
 		return;
 	}
 	__asm__ volatile("cpsie i" : : : "memory");
-#elif defined(CONFIG_ARMV7_M)
+#elif defined(CONFIG_ARMV7_M_ARMV8_M_MAINLINE)
 	__asm__ volatile("msr BASEPRI, %0" :  : "r"(key) : "memory");
 #else
 #error Unknown ARM architecture
-#endif /* CONFIG_ARMV6_M */
+#endif /* CONFIG_ARMV6_M_ARMV8_M_BASELINE */
 }
 
 
@@ -182,4 +184,4 @@ static ALWAYS_INLINE void _arch_irq_unlock(unsigned int key)
 }
 #endif
 
-#endif /* _ASM_INLINE_GCC_PUBLIC_GCC_H */
+#endif /* ZEPHYR_INCLUDE_ARCH_ARM_CORTEX_M_ASM_INLINE_GCC_H_ */

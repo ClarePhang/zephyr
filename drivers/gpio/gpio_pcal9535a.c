@@ -11,15 +11,17 @@
 #include <errno.h>
 
 #include <kernel.h>
-
+#include <device.h>
+#include <init.h>
 #include <misc/util.h>
 #include <gpio.h>
 #include <i2c.h>
 
 #include "gpio_pcal9535a.h"
 
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_GPIO_PCAL9535A_LEVEL
-#include <logging/sys_log.h>
+#define LOG_LEVEL CONFIG_GPIO_LOG_LEVEL
+#include <logging/log.h>
+LOG_MODULE_REGISTER(gpio_pcal9535a);
 
 /* Register definitions */
 #define REG_INPUT_PORT0			0x00
@@ -75,7 +77,7 @@ static inline int _has_i2c_master(struct device *dev)
  *
  * @return 0 if successful, failed otherwise.
  */
-static int _read_port_regs(struct device *dev, uint8_t reg,
+static int _read_port_regs(struct device *dev, u8_t reg,
 			   union gpio_pcal9535a_port_data *buf)
 {
 	const struct gpio_pcal9535a_config * const config =
@@ -83,18 +85,18 @@ static int _read_port_regs(struct device *dev, uint8_t reg,
 	struct gpio_pcal9535a_drv_data * const drv_data =
 		(struct gpio_pcal9535a_drv_data * const)dev->driver_data;
 	struct device * const i2c_master = drv_data->i2c_master;
-	uint16_t i2c_addr = config->i2c_slave_addr;
+	u16_t i2c_addr = config->i2c_slave_addr;
 	int ret;
 
 	ret = i2c_burst_read(i2c_master, i2c_addr, reg, buf->byte, 2);
 	if (ret) {
-		SYS_LOG_ERR("PCAL9535A[0x%X]: error reading register 0x%X (%d)",
-			    i2c_addr, reg, ret);
+		LOG_ERR("PCAL9535A[0x%X]: error reading register 0x%X (%d)",
+			i2c_addr, reg, ret);
 		goto error;
 	}
 
-	SYS_LOG_DBG("PCAL9535A[0x%X]: Read: REG[0x%X] = 0x%X, REG[0x%X] = 0x%X",
-		    i2c_addr, reg, buf->byte[0], (reg + 1), buf->byte[1]);
+	LOG_DBG("PCAL9535A[0x%X]: Read: REG[0x%X] = 0x%X, REG[0x%X] = 0x%X",
+		i2c_addr, reg, buf->byte[0], (reg + 1), buf->byte[1]);
 
 error:
 	return ret;
@@ -111,7 +113,7 @@ error:
  *
  * @return 0 if successful, failed otherwise.
  */
-static int _write_port_regs(struct device *dev, uint8_t reg,
+static int _write_port_regs(struct device *dev, u8_t reg,
 			    union gpio_pcal9535a_port_data *buf)
 {
 	const struct gpio_pcal9535a_config * const config =
@@ -119,17 +121,17 @@ static int _write_port_regs(struct device *dev, uint8_t reg,
 	struct gpio_pcal9535a_drv_data * const drv_data =
 		(struct gpio_pcal9535a_drv_data * const)dev->driver_data;
 	struct device * const i2c_master = drv_data->i2c_master;
-	uint16_t i2c_addr = config->i2c_slave_addr;
+	u16_t i2c_addr = config->i2c_slave_addr;
 	int ret;
 
-	SYS_LOG_DBG("PCAL9535A[0x%X]: Write: REG[0x%X] = 0x%X, REG[0x%X] = "
-		    "0x%X", i2c_addr, reg, buf->byte[0], (reg + 1),
-		    buf->byte[1]);
+	LOG_DBG("PCAL9535A[0x%X]: Write: REG[0x%X] = 0x%X, REG[0x%X] = "
+		"0x%X", i2c_addr, reg, buf->byte[0], (reg + 1),
+		buf->byte[1]);
 
 	ret = i2c_burst_write(i2c_master, i2c_addr, reg, buf->byte, 2);
 	if (ret) {
-		SYS_LOG_ERR("PCAL9535A[0x%X]: error writing from register 0x%X "
-			    "(%d)", i2c_addr, reg, ret);
+		LOG_ERR("PCAL9535A[0x%X]: error writing from register 0x%X "
+			"(%d)", i2c_addr, reg, ret);
 	}
 
 	return ret;
@@ -146,13 +148,13 @@ static int _write_port_regs(struct device *dev, uint8_t reg,
  * @return 0 if successful, failed otherwise
  */
 static int _setup_pin_dir(struct device *dev, int access_op,
-			  uint32_t pin, int flags)
+			  u32_t pin, int flags)
 {
 	struct gpio_pcal9535a_drv_data * const drv_data =
 		(struct gpio_pcal9535a_drv_data * const)dev->driver_data;
 	union gpio_pcal9535a_port_data *port = &drv_data->reg_cache.dir;
-	uint16_t bit_mask;
-	uint16_t new_value = 0;
+	u16_t bit_mask;
+	u16_t new_value = 0U;
 	int ret;
 
 	switch (access_op) {
@@ -198,13 +200,13 @@ done:
  * @return 0 if successful, failed otherwise
  */
 static int _setup_pin_pullupdown(struct device *dev, int access_op,
-				 uint32_t pin, int flags)
+				 u32_t pin, int flags)
 {
 	struct gpio_pcal9535a_drv_data * const drv_data =
 		(struct gpio_pcal9535a_drv_data * const)dev->driver_data;
 	union gpio_pcal9535a_port_data *port;
-	uint16_t bit_mask;
-	uint16_t new_value = 0;
+	u16_t bit_mask;
+	u16_t new_value = 0U;
 	int ret;
 
 	/* If disabling pull up/down, there is no need to set the selection
@@ -291,13 +293,13 @@ done:
  * @return 0 if successful, failed otherwise
  */
 static int _setup_pin_polarity(struct device *dev, int access_op,
-			       uint32_t pin, int flags)
+			       u32_t pin, int flags)
 {
 	struct gpio_pcal9535a_drv_data * const drv_data =
 		(struct gpio_pcal9535a_drv_data * const)dev->driver_data;
 	union gpio_pcal9535a_port_data *port = &drv_data->reg_cache.pol_inv;
-	uint16_t bit_mask;
-	uint16_t new_value = 0;
+	u16_t bit_mask;
+	u16_t new_value = 0U;
 	int ret;
 
 	switch (access_op) {
@@ -336,7 +338,7 @@ done:
 }
 
 /**
- * @brief Configurate pin or port
+ * @brief Configure pin or port
  *
  * @param dev Device struct of the PCAL9535A
  * @param access_op Access operation (pin or port)
@@ -346,15 +348,19 @@ done:
  * @return 0 if successful, failed otherwise
  */
 static int gpio_pcal9535a_config(struct device *dev, int access_op,
-				 uint32_t pin, int flags)
+				 u32_t pin, int flags)
 {
 	int ret;
 
-#if (CONFIG_SYS_LOG_GPIO_PCAL9535A_LEVEL >= SYS_LOG_LEVEL_DEBUG)
+#if (CONFIG_GPIO_LOG_LEVEL >= LOG_LEVEL_DEBUG)
 	const struct gpio_pcal9535a_config * const config =
 		dev->config->config_info;
-	uint16_t i2c_addr = config->i2c_slave_addr;
+	u16_t i2c_addr = config->i2c_slave_addr;
 #endif
+
+	if (flags & GPIO_INT) {
+		return -ENOTSUP;
+	}
 
 	if (!_has_i2c_master(dev)) {
 		return -EINVAL;
@@ -362,22 +368,22 @@ static int gpio_pcal9535a_config(struct device *dev, int access_op,
 
 	ret = _setup_pin_dir(dev, access_op, pin, flags);
 	if (ret) {
-		SYS_LOG_ERR("PCAL9535A[0x%X]: error setting pin direction (%d)",
-			    i2c_addr, ret);
+		LOG_ERR("PCAL9535A[0x%X]: error setting pin direction (%d)",
+			i2c_addr, ret);
 		goto done;
 	}
 
 	ret = _setup_pin_polarity(dev, access_op, pin, flags);
 	if (ret) {
-		SYS_LOG_ERR("PCAL9535A[0x%X]: error setting pin polarity (%d)",
-			    i2c_addr, ret);
+		LOG_ERR("PCAL9535A[0x%X]: error setting pin polarity (%d)",
+			i2c_addr, ret);
 		goto done;
 	}
 
 	ret = _setup_pin_pullupdown(dev, access_op, pin, flags);
 	if (ret) {
-		SYS_LOG_ERR("PCAL9535A[0x%X]: error setting pin pull up/down "
-			    "(%d)", i2c_addr, ret);
+		LOG_ERR("PCAL9535A[0x%X]: error setting pin pull up/down "
+			"(%d)", i2c_addr, ret);
 		goto done;
 	}
 
@@ -396,13 +402,13 @@ done:
  * @return 0 if successful, failed otherwise
  */
 static int gpio_pcal9535a_write(struct device *dev, int access_op,
-				uint32_t pin, uint32_t value)
+				u32_t pin, u32_t value)
 {
 	struct gpio_pcal9535a_drv_data * const drv_data =
 		(struct gpio_pcal9535a_drv_data * const)dev->driver_data;
 	union gpio_pcal9535a_port_data *port = &drv_data->reg_cache.output;
-	uint16_t bit_mask;
-	uint16_t new_value;
+	u16_t bit_mask;
+	u16_t new_value;
 	int ret;
 
 	if (!_has_i2c_master(dev)) {
@@ -456,7 +462,7 @@ done:
  * @return 0 if successful, failed otherwise
  */
 static int gpio_pcal9535a_read(struct device *dev, int access_op,
-			       uint32_t pin, uint32_t *value)
+			       u32_t pin, u32_t *value)
 {
 	union gpio_pcal9535a_port_data buf;
 	int ret;
@@ -486,44 +492,10 @@ done:
 	return ret;
 }
 
-static int gpio_pcal9535a_manage_callback(struct device *dev,
-					  struct gpio_callback *callback,
-					  bool set)
-{
-	ARG_UNUSED(dev);
-	ARG_UNUSED(callback);
-	ARG_UNUSED(set);
-
-	return -ENOTSUP;
-}
-
-static int gpio_pcal9535a_enable_callback(struct device *dev,
-					  int access_op, uint32_t pin)
-{
-	ARG_UNUSED(dev);
-	ARG_UNUSED(access_op);
-	ARG_UNUSED(pin);
-
-	return -ENOTSUP;
-}
-
-static int gpio_pcal9535a_disable_callback(struct device *dev,
-					   int access_op, uint32_t pin)
-{
-	ARG_UNUSED(dev);
-	ARG_UNUSED(access_op);
-	ARG_UNUSED(pin);
-
-	return -ENOTSUP;
-}
-
 static const struct gpio_driver_api gpio_pcal9535a_drv_api_funcs = {
 	.config = gpio_pcal9535a_config,
 	.write = gpio_pcal9535a_write,
 	.read = gpio_pcal9535a_read,
-	.manage_callback = gpio_pcal9535a_manage_callback,
-	.enable_callback = gpio_pcal9535a_enable_callback,
-	.disable_callback = gpio_pcal9535a_disable_callback,
 };
 
 /**
@@ -547,16 +519,11 @@ static int gpio_pcal9535a_init(struct device *dev)
 	}
 	drv_data->i2c_master = i2c_master;
 
-	dev->driver_api = &gpio_pcal9535a_drv_api_funcs;
-
 	return 0;
 }
 
 /* Initialization for PCAL9535A_0 */
 #ifdef CONFIG_GPIO_PCAL9535A_0
-#include <device.h>
-#include <init.h>
-
 static const struct gpio_pcal9535a_config gpio_pcal9535a_0_cfg = {
 	.i2c_master_dev_name = CONFIG_GPIO_PCAL9535A_0_I2C_MASTER_DEV_NAME,
 	.i2c_slave_addr = CONFIG_GPIO_PCAL9535A_0_I2C_ADDR,
@@ -572,18 +539,16 @@ static struct gpio_pcal9535a_drv_data gpio_pcal9535a_0_drvdata = {
 };
 
 /* This has to init after I2C master */
-DEVICE_INIT(gpio_pcal9535a_0, CONFIG_GPIO_PCAL9535A_0_DEV_NAME,
+DEVICE_AND_API_INIT(gpio_pcal9535a_0, CONFIG_GPIO_PCAL9535A_0_DEV_NAME,
 	    gpio_pcal9535a_init,
 	    &gpio_pcal9535a_0_drvdata, &gpio_pcal9535a_0_cfg,
-	    POST_KERNEL, CONFIG_GPIO_PCAL9535A_INIT_PRIORITY);
+	    POST_KERNEL, CONFIG_GPIO_PCAL9535A_INIT_PRIORITY,
+	    &gpio_pcal9535a_drv_api_funcs);
 
 #endif /* CONFIG_GPIO_PCAL9535A_0 */
 
 /* Initialization for PCAL9535A_1 */
 #ifdef CONFIG_GPIO_PCAL9535A_1
-#include <device.h>
-#include <init.h>
-
 static const struct gpio_pcal9535a_config gpio_pcal9535a_1_cfg = {
 	.i2c_master_dev_name = CONFIG_GPIO_PCAL9535A_1_I2C_MASTER_DEV_NAME,
 	.i2c_slave_addr = CONFIG_GPIO_PCAL9535A_1_I2C_ADDR,
@@ -599,18 +564,16 @@ static struct gpio_pcal9535a_drv_data gpio_pcal9535a_1_drvdata = {
 };
 
 /* This has to init after I2C master */
-DEVICE_INIT(gpio_pcal9535a_1, CONFIG_GPIO_PCAL9535A_1_DEV_NAME,
+DEVICE_AND_API_INIT(gpio_pcal9535a_1, CONFIG_GPIO_PCAL9535A_1_DEV_NAME,
 	    gpio_pcal9535a_init,
 	    &gpio_pcal9535a_1_drvdata, &gpio_pcal9535a_1_cfg,
-	    POST_KERNEL, CONFIG_GPIO_PCAL9535A_INIT_PRIORITY);
+	    POST_KERNEL, CONFIG_GPIO_PCAL9535A_INIT_PRIORITY,
+	    &gpio_pcal9535a_drv_api_funcs);
 
 #endif /* CONFIG_GPIO_PCAL9535A_1 */
 
 /* Initialization for PCAL9535A_2 */
 #ifdef CONFIG_GPIO_PCAL9535A_2
-#include <device.h>
-#include <init.h>
-
 static const struct gpio_pcal9535a_config gpio_pcal9535a_2_cfg = {
 	.i2c_master_dev_name = CONFIG_GPIO_PCAL9535A_2_I2C_MASTER_DEV_NAME,
 	.i2c_slave_addr = CONFIG_GPIO_PCAL9535A_2_I2C_ADDR,
@@ -626,18 +589,16 @@ static struct gpio_pcal9535a_drv_data gpio_pcal9535a_2_drvdata = {
 };
 
 /* This has to init after I2C master */
-DEVICE_INIT(gpio_pcal9535a_2, CONFIG_GPIO_PCAL9535A_2_DEV_NAME,
+DEVICE_AND_API_INIT(gpio_pcal9535a_2, CONFIG_GPIO_PCAL9535A_2_DEV_NAME,
 	    gpio_pcal9535a_init,
 	    &gpio_pcal9535a_2_drvdata, &gpio_pcal9535a_2_cfg,
-	    POST_KERNEL, CONFIG_GPIO_PCAL9535A_INIT_PRIORITY);
+	    POST_KERNEL, CONFIG_GPIO_PCAL9535A_INIT_PRIORITY,
+	    &gpio_pcal9535a_drv_api_funcs);
 
 #endif /* CONFIG_GPIO_PCAL9535A_2 */
 
 /* Initialization for PCAL9535A_3 */
 #ifdef CONFIG_GPIO_PCAL9535A_3
-#include <device.h>
-#include <init.h>
-
 static const struct gpio_pcal9535a_config gpio_pcal9535a_3_cfg = {
 	.i2c_master_dev_name = CONFIG_GPIO_PCAL9535A_3_I2C_MASTER_DEV_NAME,
 	.i2c_slave_addr = CONFIG_GPIO_PCAL9535A_3_I2C_ADDR,
@@ -653,9 +614,10 @@ static struct gpio_pcal9535a_drv_data gpio_pcal9535a_3_drvdata = {
 };
 
 /* This has to init after I2C master */
-DEVICE_INIT(gpio_pcal9535a_3, CONFIG_GPIO_PCAL9535A_3_DEV_NAME,
+DEVICE_AND_API_INIT(gpio_pcal9535a_3, CONFIG_GPIO_PCAL9535A_3_DEV_NAME,
 	    gpio_pcal9535a_init,
 	    &gpio_pcal9535a_3_drvdata, &gpio_pcal9535a_3_cfg,
-	    POST_KERNEL, CONFIG_GPIO_PCAL9535A_INIT_PRIORITY);
+	    POST_KERNEL, CONFIG_GPIO_PCAL9535A_INIT_PRIORITY,
+	    &gpio_pcal9535a_drv_api_funcs);
 
 #endif /* CONFIG_GPIO_PCAL9535A_3 */

@@ -16,15 +16,15 @@
  * By default, the demo uses MUTEXES.
  *
  * The demo can also be configured to work with static objects or dynamic
- * objects. The behaviour will change depending if STATIC_OBJS is set to 0 or
+ * objects. The behavior will change depending if STATIC_OBJS is set to 0 or
  * 1.
  *
  * By default, the demo uses dynamic objects.
  *
  * The demo can be configured to work with threads of the same priority or
  * not. If using different priorities, two threads will be cooperative
- * threads, and the other four will be preemtible threads; if using one
- * priority, there will be six preemtible threads of priority 0. This is
+ * threads, and the other four will be preemptible threads; if using one
+ * priority, there will be six preemptible threads of priority 0. This is
  * changed via SAME_PRIO.
  *
  * By default, the demo uses different priorities.
@@ -76,7 +76,9 @@
 #endif
 #endif
 
+#ifndef SAME_PRIO
 #define SAME_PRIO 0
+#endif
 
 /* end - control behaviour of the demo */
 /***************************************/
@@ -84,7 +86,7 @@
 #define STACK_SIZE 768
 
 /*
- * There are multiple tasks doing printfs and they may conflict.
+ * There are multiple threads doing printfs and they may conflict.
  * Therefore use puts() instead of printf().
  */
 #if defined(CONFIG_STDOUT_CONSOLE)
@@ -112,7 +114,7 @@ static void set_phil_state_pos(int id)
 }
 
 #include <stdarg.h>
-static void print_phil_state(int id, const char *fmt, int32_t delay)
+static void print_phil_state(int id, const char *fmt, s32_t delay)
 {
 	int prio = k_thread_priority_get(k_current_get());
 
@@ -132,17 +134,17 @@ static void print_phil_state(int id, const char *fmt, int32_t delay)
 	PRINTF("\n");
 }
 
-static int32_t get_random_delay(int id, int period_in_ms)
+static s32_t get_random_delay(int id, int period_in_ms)
 {
 	/*
 	 * The random delay is unit-less, and is based on the philosopher's ID
 	 * and the current uptime to create some pseudo-randomness. It produces
 	 * a value between 0 and 31.
 	 */
-	int32_t delay = (k_uptime_get_32()/100 * (id + 1)) & 0x1f;
+	s32_t delay = (k_uptime_get_32()/100 * (id + 1)) & 0x1f;
 
 	/* add 1 to not generate a delay of 0 */
-	int32_t ms = (delay + 1) * period_in_ms;
+	s32_t ms = (delay + 1) * period_in_ms;
 
 	return ms;
 }
@@ -172,7 +174,7 @@ void philosopher(void *id, void *unused1, void *unused2)
 	}
 
 	while (1) {
-		int32_t delay;
+		s32_t delay;
 
 		print_phil_state(my_id, "       STARVING       ", 0);
 		take(fork1);
@@ -224,12 +226,21 @@ static void init_objects(void)
 
 static void start_threads(void)
 {
-	/* create two fibers (prios -2/-1) and four tasks: (prios 0-3) */
+	/*
+	 * create two coop. threads (prios -2/-1) and four preemptive threads
+	 * : (prios 0-3)
+	 */
 	for (int i = 0; i < NUM_PHIL; i++) {
 		int prio = new_prio(i);
 
-		k_thread_spawn(&stacks[i][0], STACK_SIZE,
-			       philosopher, (void *)i, NULL, NULL, prio, 0, 0);
+		k_thread_create(&threads[i], &stacks[i][0], STACK_SIZE,
+				philosopher, (void *)i, NULL, NULL, prio,
+				K_USER, K_FOREVER);
+
+		k_object_access_grant(fork(i), &threads[i]);
+		k_object_access_grant(fork((i + 1) % NUM_PHIL), &threads[i]);
+
+		k_thread_start(&threads[i]);
 	}
 }
 
@@ -253,6 +264,9 @@ static void display_demo_description(void)
 void main(void)
 {
 	display_demo_description();
+#if CONFIG_TIMESLICING
+	k_sched_time_slice_set(5000, 0);
+#endif
 
 	init_objects();
 	start_threads();

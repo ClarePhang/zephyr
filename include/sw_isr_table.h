@@ -11,17 +11,15 @@
  * Data types for a software-managed ISR table, with a parameter per-ISR.
  */
 
-#ifndef _SW_ISR_TABLE__H_
-#define _SW_ISR_TABLE__H_
-
-#include <arch/cpu.h>
+#ifndef ZEPHYR_INCLUDE_SW_ISR_TABLE_H_
+#define ZEPHYR_INCLUDE_SW_ISR_TABLE_H_
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #if !defined(_ASMLANGUAGE)
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <toolchain.h>
 
 /*
@@ -48,9 +46,9 @@ extern struct _isr_table_entry _sw_isr_table[];
  */
 struct _isr_list {
 	/** IRQ line number */
-	int32_t irq;
+	s32_t irq;
 	/** Flags for this IRQ, see ISR_FLAG_* definitions */
-	int32_t flags;
+	s32_t flags;
 	/** ISR to call */
 	void *func;
 	/** Parameter for non-direct IRQs */
@@ -73,10 +71,14 @@ struct _isr_list {
 
 #define IRQ_TABLE_SIZE (CONFIG_NUM_IRQS - CONFIG_GEN_IRQ_START_VECTOR)
 
+#ifdef CONFIG_DYNAMIC_INTERRUPTS
+void z_isr_install(unsigned int irq, void (*routine)(void *), void *param);
+#endif
+
 #endif /* _ASMLANGUAGE */
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _SW_ISR_TABLE__H_ */
+#endif /* ZEPHYR_INCLUDE_SW_ISR_TABLE_H_ */

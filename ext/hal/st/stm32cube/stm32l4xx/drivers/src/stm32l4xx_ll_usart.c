@@ -2,13 +2,11 @@
   ******************************************************************************
   * @file    stm32l4xx_ll_usart.c
   * @author  MCD Application Team
-  * @version V1.6.0
-  * @date    28-October-2016
   * @brief   USART LL module driver.
   ******************************************************************************
   * @attention
   *
-  * <h2><center>&copy; COPYRIGHT(c) 2016 STMicroelectronics</center></h2>
+  * <h2><center>&copy; COPYRIGHT(c) 2017 STMicroelectronics</center></h2>
   *
   * Redistribution and use in source and binary forms, with or without modification,
   * are permitted provided that the following conditions are met:
@@ -73,9 +71,34 @@
   * @{
   */
 
+#if defined(USART_PRESC_PRESCALER)
+#define IS_LL_USART_PRESCALER(__VALUE__)  (((__VALUE__) == LL_USART_PRESCALER_DIV1) \
+                                        || ((__VALUE__) == LL_USART_PRESCALER_DIV2) \
+                                        || ((__VALUE__) == LL_USART_PRESCALER_DIV4) \
+                                        || ((__VALUE__) == LL_USART_PRESCALER_DIV6) \
+                                        || ((__VALUE__) == LL_USART_PRESCALER_DIV8) \
+                                        || ((__VALUE__) == LL_USART_PRESCALER_DIV10) \
+                                        || ((__VALUE__) == LL_USART_PRESCALER_DIV12) \
+                                        || ((__VALUE__) == LL_USART_PRESCALER_DIV16) \
+                                        || ((__VALUE__) == LL_USART_PRESCALER_DIV32) \
+                                        || ((__VALUE__) == LL_USART_PRESCALER_DIV64) \
+                                        || ((__VALUE__) == LL_USART_PRESCALER_DIV128) \
+                                        || ((__VALUE__) == LL_USART_PRESCALER_DIV256))
+#endif
+
 /* __BAUDRATE__ The maximum Baud Rate is derived from the maximum clock available
  *              divided by the smallest oversampling used on the USART (i.e. 8)    */
+#if defined(STM32L4R5xx) || defined(STM32L4R7xx) || defined(STM32L4R9xx) || defined(STM32L4S5xx) || defined(STM32L4S7xx) || defined(STM32L4S9xx)
+#define IS_LL_USART_BAUDRATE(__BAUDRATE__) ((__BAUDRATE__) <= 15000000U)
+#else
 #define IS_LL_USART_BAUDRATE(__BAUDRATE__) ((__BAUDRATE__) <= 10000000U)
+#endif
+
+/* __VALUE__ In case of oversampling by 16 and 8, BRR content must be greater than or equal to 16d. */
+#define IS_LL_USART_BRR_MIN(__VALUE__) ((__VALUE__) >= 16U)
+
+/* __VALUE__ BRR content must be lower than or equal to 0xFFFF. */
+#define IS_LL_USART_BRR_MAX(__VALUE__) ((__VALUE__) <= 0x0000FFFFU)
 
 #define IS_LL_USART_DIRECTION(__VALUE__) (((__VALUE__) == LL_USART_DIRECTION_NONE) \
                                        || ((__VALUE__) == LL_USART_DIRECTION_RX) \
@@ -205,7 +228,7 @@ ErrorStatus LL_USART_DeInit(USART_TypeDef *USARTx)
   *         USART IP should be in disabled state prior calling this function. Otherwise, ERROR result will be returned.
   * @note   Baud rate value stored in USART_InitStruct BaudRate field, should be valid (different from 0).
   * @param  USARTx USART Instance
-  * @param  USART_InitStruct: pointer to a LL_USART_InitTypeDef structure
+  * @param  USART_InitStruct pointer to a LL_USART_InitTypeDef structure
   *         that contains the configuration information for the specified USART peripheral.
   * @retval An ErrorStatus enumeration value:
   *          - SUCCESS: USART registers are initialized according to USART_InitStruct content
@@ -218,6 +241,9 @@ ErrorStatus LL_USART_Init(USART_TypeDef *USARTx, LL_USART_InitTypeDef *USART_Ini
 
   /* Check the parameters */
   assert_param(IS_UART_INSTANCE(USARTx));
+#if defined(USART_PRESC_PRESCALER)
+  assert_param(IS_LL_USART_PRESCALER(USART_InitStruct->PrescalerValue));
+#endif
   assert_param(IS_LL_USART_BAUDRATE(USART_InitStruct->BaudRate));
   assert_param(IS_LL_USART_DATAWIDTH(USART_InitStruct->DataWidth));
   assert_param(IS_LL_USART_STOPBITS(USART_InitStruct->StopBits));
@@ -230,7 +256,7 @@ ErrorStatus LL_USART_Init(USART_TypeDef *USARTx, LL_USART_InitTypeDef *USART_Ini
      CRx registers */
   if (LL_USART_IsEnabled(USARTx) == 0U)
   {
-    /*---------------------------- USART CR1 Configuration -----------------------
+    /*---------------------------- USART CR1 Configuration ---------------------
      * Configure USARTx CR1 (USART Word Length, Parity, Mode and Oversampling bits) with parameters:
      * - DataWidth:          USART_CR1_M bits according to USART_InitStruct->DataWidth value
      * - Parity:             USART_CR1_PCE, USART_CR1_PS bits according to USART_InitStruct->Parity value
@@ -243,20 +269,20 @@ ErrorStatus LL_USART_Init(USART_TypeDef *USARTx, LL_USART_InitTypeDef *USART_Ini
                (USART_InitStruct->DataWidth | USART_InitStruct->Parity |
                 USART_InitStruct->TransferDirection | USART_InitStruct->OverSampling));
 
-    /*---------------------------- USART CR2 Configuration -----------------------
+    /*---------------------------- USART CR2 Configuration ---------------------
      * Configure USARTx CR2 (Stop bits) with parameters:
      * - Stop Bits:          USART_CR2_STOP bits according to USART_InitStruct->StopBits value.
      * - CLKEN, CPOL, CPHA and LBCL bits are to be configured using LL_USART_ClockInit().
      */
     LL_USART_SetStopBitsLength(USARTx, USART_InitStruct->StopBits);
 
-    /*---------------------------- USART CR3 Configuration -----------------------
+    /*---------------------------- USART CR3 Configuration ---------------------
      * Configure USARTx CR3 (Hardware Flow Control) with parameters:
      * - HardwareFlowControl: USART_CR3_RTSE, USART_CR3_CTSE bits according to USART_InitStruct->HardwareFlowControl value.
      */
     LL_USART_SetHWFlowCtrl(USARTx, USART_InitStruct->HardwareFlowControl);
 
-    /*---------------------------- USART BRR Configuration -----------------------
+    /*---------------------------- USART BRR Configuration ---------------------
      * Retrieve Clock frequency used for USART Peripheral
      */
     if (USARTx == USART1)
@@ -291,6 +317,9 @@ ErrorStatus LL_USART_Init(USART_TypeDef *USARTx, LL_USART_InitTypeDef *USART_Ini
     }
 
     /* Configure the USART Baud Rate :
+    #if defined(USART_PRESC_PRESCALER)
+       - prescaler value is required
+    #endif
        - valid baud rate value (different from 0) is required
        - Peripheral clock as returned by RCC service, should be valid (different from 0).
     */
@@ -300,9 +329,26 @@ ErrorStatus LL_USART_Init(USART_TypeDef *USARTx, LL_USART_InitTypeDef *USART_Ini
       status = SUCCESS;
       LL_USART_SetBaudRate(USARTx,
                            periphclk,
+#if defined(USART_PRESC_PRESCALER)
+                           USART_InitStruct->PrescalerValue,
+#endif
                            USART_InitStruct->OverSampling,
                            USART_InitStruct->BaudRate);
+
+      /* Check BRR is greater than or equal to 16d */
+      assert_param(IS_LL_USART_BRR_MIN(USARTx->BRR));
+
+      /* Check BRR is lower than or equal to 0xFFFF */
+      assert_param(IS_LL_USART_BRR_MAX(USARTx->BRR));
     }
+
+#if defined(USART_PRESC_PRESCALER)
+    /*---------------------------- USART PRESC Configuration -----------------------
+     * Configure USARTx PRESC (Prescaler) with parameters:
+     * - PrescalerValue: USART_PRESC_PRESCALER bits according to USART_InitStruct->PrescalerValue value.
+     */
+    LL_USART_SetPrescaler(USARTx, USART_InitStruct->PrescalerValue);
+#endif
   }
   /* Endif (=> USART not in Disabled state => return ERROR) */
 
@@ -311,14 +357,17 @@ ErrorStatus LL_USART_Init(USART_TypeDef *USARTx, LL_USART_InitTypeDef *USART_Ini
 
 /**
   * @brief Set each @ref LL_USART_InitTypeDef field to default value.
-  * @param USART_InitStruct: pointer to a @ref LL_USART_InitTypeDef structure
-  *                          whose fields will be set to default values.
+  * @param USART_InitStruct pointer to a @ref LL_USART_InitTypeDef structure
+  *                         whose fields will be set to default values.
   * @retval None
   */
 
 void LL_USART_StructInit(LL_USART_InitTypeDef *USART_InitStruct)
 {
   /* Set USART_InitStruct fields to default values */
+#if defined(USART_PRESC_PRESCALER)
+  USART_InitStruct->PrescalerValue      = LL_USART_PRESCALER_DIV1;
+#endif
   USART_InitStruct->BaudRate            = 9600U;
   USART_InitStruct->DataWidth           = LL_USART_DATAWIDTH_8B;
   USART_InitStruct->StopBits            = LL_USART_STOPBITS_1;
@@ -334,7 +383,7 @@ void LL_USART_StructInit(LL_USART_InitTypeDef *USART_InitStruct)
   * @note   As some bits in USART configuration registers can only be written when the USART is disabled (USART_CR1_UE bit =0),
   *         USART IP should be in disabled state prior calling this function. Otherwise, ERROR result will be returned.
   * @param  USARTx USART Instance
-  * @param  USART_ClockInitStruct: pointer to a @ref LL_USART_ClockInitTypeDef structure
+  * @param  USART_ClockInitStruct pointer to a @ref LL_USART_ClockInitTypeDef structure
   *         that contains the Clock configuration information for the specified USART peripheral.
   * @retval An ErrorStatus enumeration value:
   *          - SUCCESS: USART registers related to Clock settings are initialized according to USART_ClockInitStruct content
@@ -395,8 +444,8 @@ ErrorStatus LL_USART_ClockInit(USART_TypeDef *USARTx, LL_USART_ClockInitTypeDef 
 
 /**
   * @brief Set each field of a @ref LL_USART_ClockInitTypeDef type structure to default value.
-  * @param USART_ClockInitStruct: pointer to a @ref LL_USART_ClockInitTypeDef structure
-  *                               whose fields will be set to default values.
+  * @param USART_ClockInitStruct pointer to a @ref LL_USART_ClockInitTypeDef structure
+  *                              whose fields will be set to default values.
   * @retval None
   */
 void LL_USART_ClockStructInit(LL_USART_ClockInitTypeDef *USART_ClockInitStruct)

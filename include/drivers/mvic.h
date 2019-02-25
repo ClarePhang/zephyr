@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef MVIC_H
-#define MVIC_H
+#ifndef ZEPHYR_INCLUDE_DRIVERS_MVIC_H_
+#define ZEPHYR_INCLUDE_DRIVERS_MVIC_H_
 
 #include <arch/cpu.h>
 
@@ -47,14 +47,14 @@
  */
 
 #ifndef _ASMLANGUAGE
-#include <stdint.h>
+#include <zephyr/types.h>
 
 /* Implementation of irq_controller.h interface */
 
 #define __IRQ_CONTROLLER_VECTOR_MAPPING(irq)	((irq) + 32)
 
 void __irq_controller_irq_config(unsigned int vector, unsigned int irq,
-				 uint32_t flags);
+				 u32_t flags);
 
 int __irq_controller_isr_vector_get(void);
 
@@ -72,4 +72,4 @@ static inline void __irq_controller_eoi(void)
 
 #endif
 
-#endif /* MVIC_H */
+#endif /* ZEPHYR_INCLUDE_DRIVERS_MVIC_H_ */

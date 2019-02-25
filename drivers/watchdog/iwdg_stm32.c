@@ -1,116 +1,181 @@
 /*
  * Copyright (c) 2016 Open-RnD Sp. z o.o.
+ * Copyright (c) 2017 RnDity Sp. z o.o.
+ * Copyright (c) 2018 qianfan Zhao
  *
  * SPDX-License-Identifier: Apache-2.0
- */
-
-/**
- * @brief Driver for Independent Watchdog (IWDG) for STM32 MCUs
- *
- * Based on reference manual:
- *   STM32F101xx, STM32F102xx, STM32F103xx, STM32F105xx and STM32F107xx
- *   advanced ARM ® -based 32-bit MCUs
- *
- * Chapter 19: Independent watchdog (IWDG)
- *
  */
 
 #include <watchdog.h>
 #include <soc.h>
 #include <errno.h>
+#include <assert.h>
 
 #include "iwdg_stm32.h"
 
-#define AS_IWDG(__base_addr) \
-	(struct iwdg_stm32 *)(__base_addr)
+/* Minimal timeout in microseconds. */
+#define IWDG_TIMEOUT_MIN	100
+/* Maximal timeout in microseconds. */
+#define IWDG_TIMEOUT_MAX	26214400
 
-static void iwdg_stm32_enable(struct device *dev)
+#define IS_IWDG_TIMEOUT(__TIMEOUT__)		\
+	(((__TIMEOUT__) >= IWDG_TIMEOUT_MIN) &&	\
+	 ((__TIMEOUT__) <= IWDG_TIMEOUT_MAX))
+
+/*
+ * Status register need 5 RC LSI divided by prescaler clock to be updated.
+ * With higher prescaler (256U), and according to HSI variation,
+ * we need to wait at least 6 cycles so 48 ms.
+ */
+
+#define IWDG_DEFAULT_TIMEOUT	48u
+
+/**
+ * @brief Calculates prescaler & reload values.
+ *
+ * @param timeout Timeout value in microseconds.
+ * @param prescaler Pointer to prescaler value.
+ * @param reload Pointer to reload value.
+ */
+static void iwdg_stm32_convert_timeout(u32_t timeout,
+				       u32_t *prescaler,
+				       u32_t *reload)
 {
-	volatile struct iwdg_stm32 *iwdg = AS_IWDG(IWDG_BASE);
 
-	ARG_UNUSED(dev);
+	u16_t divider = 0U;
+	u8_t shift = 0U;
 
-	iwdg->kr.bit.key = STM32_IWDG_KR_START;
+	/* Convert timeout to seconds. */
+	float m_timeout = (float)timeout / 1000000 * LSI_VALUE;
+
+	do {
+		divider = 4 << shift;
+		shift++;
+	} while ((m_timeout / divider) > 0xFFF);
+
+	/*
+	 * Value of the 'shift' variable corresponds to the
+	 * defines of LL_IWDG_PRESCALER_XX type.
+	 */
+	*prescaler = --shift;
+	*reload = (u32_t)(m_timeout / divider) - 1;
 }
 
-static void iwdg_stm32_disable(struct device *dev)
+static int iwdg_stm32_setup(struct device *dev, u8_t options)
+{
+	IWDG_TypeDef *iwdg = IWDG_STM32_STRUCT(dev);
+
+	/* Deactivate running when debugger is attached. */
+	if (options & WDT_OPT_PAUSE_HALTED_BY_DBG) {
+#if defined(CONFIG_SOC_SERIES_STM32F0X)
+		LL_APB1_GRP2_EnableClock(LL_APB1_GRP2_PERIPH_DBGMCU);
+#elif defined(CONFIG_SOC_SERIES_STM32L0X)
+		LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_DBGMCU);
+#endif
+		LL_DBGMCU_APB1_GRP1_FreezePeriph(LL_DBGMCU_APB1_GRP1_IWDG_STOP);
+	}
+
+	if (options & WDT_OPT_PAUSE_IN_SLEEP) {
+		return -ENOTSUP;
+	}
+
+	LL_IWDG_Enable(iwdg);
+	return 0;
+}
+
+static int iwdg_stm32_disable(struct device *dev)
 {
 	/* watchdog cannot be stopped once started */
 	ARG_UNUSED(dev);
+
+	return -EPERM;
 }
 
-static int iwdg_stm32_set_config(struct device *dev,
-				struct wdt_config *config)
+static int iwdg_stm32_install_timeout(struct device *dev,
+				      const struct wdt_timeout_cfg *config)
 {
-	ARG_UNUSED(dev);
-	ARG_UNUSED(config);
+	IWDG_TypeDef *iwdg = IWDG_STM32_STRUCT(dev);
+	u32_t timeout = config->window.max * USEC_PER_MSEC;
+	u32_t prescaler = 0U;
+	u32_t reload = 0U;
+	u32_t tickstart;
 
-	/* no configuration */
-
-	return -ENOTSUP;
-}
-
-static void iwdg_stm32_get_config(struct device *dev,
-				struct wdt_config *config)
-{
-	ARG_UNUSED(dev);
-	ARG_UNUSED(config);
-}
-
-static void iwdg_stm32_reload(struct device *dev)
-{
-	volatile struct iwdg_stm32 *iwdg = AS_IWDG(IWDG_BASE);
-
-	ARG_UNUSED(dev);
-
-	iwdg->kr.bit.key = STM32_IWDG_KR_RELOAD;
-}
-
-static const struct wdt_driver_api iwdg_stm32_api = {
-	.enable = iwdg_stm32_enable,
-	.disable = iwdg_stm32_disable,
-	.get_config = iwdg_stm32_get_config,
-	.set_config = iwdg_stm32_set_config,
-	.reload = iwdg_stm32_reload,
-};
-
-static inline int __iwdg_stm32_prescaler(int setting)
-{
-	int v;
-	int i = 0;
-
-	/* prescaler range 4 - 256 */
-	for (v = 4; v < 256; v *= 2, i++) {
-		if (v == setting)
-			return i;
+	if (config->callback != NULL) {
+		return -ENOTSUP;
 	}
-	return i;
-}
 
-static int iwdg_stm32_init(struct device *dev)
-{
-	volatile struct iwdg_stm32 *iwdg = AS_IWDG(IWDG_BASE);
+	iwdg_stm32_convert_timeout(timeout, &prescaler, &reload);
 
-	/* clock setup is not required, once the watchdog is enabled
-	 * LSI oscillator will be forced on and fed to IWD after
-	 * stabilization period
-	 */
+	if (IS_IWDG_TIMEOUT(timeout) || IS_IWDG_PRESCALER(prescaler) ||
+	    IS_IWDG_RELOAD(reload)) {
+		/* One of the parameters provided is invalid */
+		return -EINVAL;
+	}
 
-	/* unlock access to configuration registers */
-	iwdg->kr.bit.key = STM32_IWDG_KR_UNLOCK;
+	tickstart = k_uptime_get_32();
 
-	iwdg->pr.bit.pr =
-		__iwdg_stm32_prescaler(CONFIG_IWDG_STM32_PRESCALER);
-	iwdg->rlr.bit.rl = CONFIG_IWDG_STM32_RELOAD_COUNTER;
+	while (LL_IWDG_IsReady(iwdg) == 0) {
+		/* Wait untill WVU, RVU, PVU are reset before updating  */
+		if ((k_uptime_get_32() - tickstart) > IWDG_DEFAULT_TIMEOUT) {
+			return -ENODEV;
+		}
+	}
 
-#ifdef CONFIG_IWDG_STM32_START_AT_BOOT
-	iwdg_stm32_enable(dev);
-#endif
+	LL_IWDG_EnableWriteAccess(iwdg);
+
+	LL_IWDG_SetPrescaler(iwdg, prescaler);
+	LL_IWDG_SetReloadCounter(iwdg, reload);
 
 	return 0;
 }
 
-DEVICE_AND_API_INIT(iwdg_stm32, CONFIG_IWDG_STM32_DEVICE_NAME, iwdg_stm32_init,
-		    NULL, NULL,
-		    PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
+static int iwdg_stm32_feed(struct device *dev, int channel_id)
+{
+	IWDG_TypeDef *iwdg = IWDG_STM32_STRUCT(dev);
+
+	ARG_UNUSED(channel_id);
+	LL_IWDG_ReloadCounter(iwdg);
+
+	return 0;
+}
+
+static const struct wdt_driver_api iwdg_stm32_api = {
+	.setup = iwdg_stm32_setup,
+	.disable = iwdg_stm32_disable,
+	.install_timeout = iwdg_stm32_install_timeout,
+	.feed = iwdg_stm32_feed,
+};
+
+static int iwdg_stm32_init(struct device *dev)
+{
+#ifdef CONFIG_IWDG_STM32_START_AT_BOOT
+	IWDG_TypeDef *iwdg = IWDG_STM32_STRUCT(dev);
+	struct wdt_timeout_cfg config = {
+		.window.max = CONFIG_IWDG_STM32_TIMEOUT * USEC_PER_MSEC,
+	};
+
+	LL_IWDG_Enable(iwdg);
+	iwdg_stm32_install_timeout(dev, &config);
+#endif
+
+	/*
+	 * The ST production value for the option bytes where WDG_SW bit is
+	 * present is 0x00FF55AA, namely the Software watchdog mode is
+	 * enabled by default.
+	 * If the IWDG is started by either hardware option or software access,
+	 * the LSI oscillator is forced ON and cannot be disabled.
+	 *
+	 * t_IWDG(ms) = t_LSI(ms) x 4 x 2^(IWDG_PR[2:0]) x (IWDG_RLR[11:0] + 1)
+	 */
+
+	return 0;
+}
+
+static struct iwdg_stm32_data iwdg_stm32_dev_data = {
+	.Instance = (IWDG_TypeDef *)DT_ST_STM32_WATCHDOG_0_BASE_ADDRESS
+};
+
+DEVICE_AND_API_INIT(iwdg_stm32, DT_ST_STM32_WATCHDOG_0_LABEL,
+		    iwdg_stm32_init, &iwdg_stm32_dev_data, NULL,
+		    POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
 		    &iwdg_stm32_api);

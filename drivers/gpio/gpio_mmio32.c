@@ -11,12 +11,12 @@
  * This is a driver for accessing a simple, fixed purpose, 32-bit
  * memory-mapped i/o register using the same APIs as GPIO drivers. This is
  * useful when an SoC or board has registers that aren't part of a GPIO IP
- * block and these registers are used to control things that Zephyr normaly
+ * block and these registers are used to control things that Zephyr normally
  * expects to be specified using a GPIO pin, e.g. for driving an LED, or
  * chip-select line for an SPI device.
  *
  * The implementation expects that all bits of the hardware register are both
- * readable and writeable, and that for any bits that act as outputs, the value
+ * readable and writable, and that for any bits that act as outputs, the value
  * read will have the value that was last written to it. This requirement
  * stems from the use of a read-modify-write method for all changes.
  *
@@ -30,10 +30,14 @@
 #include <errno.h>
 
 static int gpio_mmio32_config(struct device *dev, int access_op,
-					uint32_t pin, int flags)
+					u32_t pin, int flags)
 {
 	struct gpio_mmio32_context *context = dev->driver_data;
 	const struct gpio_mmio32_config *config = context->config;
+
+	if (flags & GPIO_INT) {
+		return -ENOTSUP;
+	}
 
 	if (access_op != GPIO_ACCESS_BY_PIN) {
 		return -ENOTSUP;
@@ -58,13 +62,13 @@ static int gpio_mmio32_config(struct device *dev, int access_op,
 }
 
 static int gpio_mmio32_write(struct device *dev, int access_op,
-					uint32_t pin, uint32_t value)
+					u32_t pin, u32_t value)
 {
 	struct gpio_mmio32_context *context = dev->driver_data;
 	const struct gpio_mmio32_config *config = context->config;
-	volatile uint32_t *reg = config->reg;
-	uint32_t mask = config->mask;
-	uint32_t invert = context->invert;
+	volatile u32_t *reg = config->reg;
+	u32_t mask = config->mask;
+	u32_t invert = context->invert;
 	unsigned int key;
 
 	if (access_op == GPIO_ACCESS_BY_PIN) {
@@ -86,11 +90,11 @@ static int gpio_mmio32_write(struct device *dev, int access_op,
 }
 
 static int gpio_mmio32_read(struct device *dev, int access_op,
-					uint32_t pin, uint32_t *value)
+					u32_t pin, u32_t *value)
 {
 	struct gpio_mmio32_context *context = dev->driver_data;
 	const struct gpio_mmio32_config *config = context->config;
-	uint32_t bits;
+	u32_t bits;
 
 	bits = (*config->reg ^ context->invert) & config->mask;
 	if (access_op == GPIO_ACCESS_BY_PIN) {

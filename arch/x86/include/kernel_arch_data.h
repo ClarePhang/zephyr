@@ -23,20 +23,30 @@
 
 /* this file is only meant to be included by kernel_structs.h */
 
-#ifndef _kernel_arch_data__h_
-#define _kernel_arch_data__h_
+#ifndef ZEPHYR_ARCH_X86_INCLUDE_KERNEL_ARCH_DATA_H_
+#define ZEPHYR_ARCH_X86_INCLUDE_KERNEL_ARCH_DATA_H_
 
 #include <toolchain.h>
-#include <sections.h>
+#include <linker/sections.h>
 #include <asm_inline.h>
 #include <exception.h>
+#include <kernel_arch_thread.h>
+#include <misc/util.h>
 
 #ifndef _ASMLANGUAGE
 #include <kernel.h>
-#include <nano_internal.h>
-#include <stdint.h>
+#include <kernel_internal.h>
+#include <zephyr/types.h>
 #include <misc/dlist.h>
 #endif
+
+/* Some configurations require that the stack/registers be adjusted before
+ * _thread_entry. See discussion in swap.S for _x86_thread_entry_wrapper()
+ */
+#if defined(CONFIG_X86_IAMCU) || defined(CONFIG_DEBUG_INFO)
+#define _THREAD_WRAPPER_REQUIRED
+#endif
+
 
 /* increase to 16 bytes (or more?) to support SSE/SSE2 instructions? */
 
@@ -88,9 +98,9 @@
 #define IV_INTEL_RESERVED_END 31
 
 /*
- * Model specific register (MSR) definitions.  Use the _MsrRead() and
- * _MsrWrite() primitives to read/write the MSRs.  Only the so-called
- * "Architectural MSRs" are listed, i.e. the subset of MSRs and associated
+ * Model specific register (MSR) definitions.  Use the _x86_msr_read() and
+ * _x86_msr_write() primitives to read/write the MSRs.  Only the so-called
+ * "Architectural MSRs" are listed, i.e.  the subset of MSRs and associated
  * bit fields which will not change on future processor generations.
  */
 
@@ -363,6 +373,7 @@
 #define IA32_GS_BASE_MSR 0xc0000101
 #define IA32_KERNEL_GS_BASE_MSR 0xc0000102
 #define IA32_TSC_AUX_MSR 0xc0000103
+#define IA32_SPEC_CTRL_MSR 0x48
 
 /*
  * EFLAGS value to utilize for the initial context:
@@ -375,9 +386,21 @@
 #define EFLAGS_INITIAL 0x00000200
 #define EFLAGS_MASK 0x00003200
 
+/* Enable paging and write protection */
+#define CR0_PG_WP_ENABLE 0x80010000
+/* Clear the 5th bit in  CR4 */
+#define CR4_PAE_DISABLE 0xFFFFFFEF
+/* Set the 5th bit in  CR4 */
+#define CR4_PAE_ENABLE 0x00000020
+
 #ifndef _ASMLANGUAGE
 
 #include <misc/util.h>
+
+#ifdef _THREAD_WRAPPER_REQUIRED
+extern void _x86_thread_entry_wrapper(k_thread_entry_t entry,
+				      void *p1, void *p2, void *p3);
+#endif /* _THREAD_WRAPPER_REQUIRED */
 
 #ifdef DEBUG
 #include <misc/printk.h>
@@ -390,248 +413,8 @@
 extern "C" {
 #endif
 
-/*
- * The following structure defines the set of 'volatile' integer registers.
- * These registers need not be preserved by a called C function.  Given that
- * they are not preserved across function calls, they must be save/restored
- * (along with the struct _caller_saved) when a preemptive context switch
- * occurs.
- */
-
-struct _caller_saved {
-
-	/*
-	 * The volatile registers 'eax', 'ecx' and 'edx' area not included in
-	 * the definition of 'tPreempReg' since the interrupt and exception
-	 * handling routunes use the stack to save and restore the values of
-	 * these registers in order to support interrupt nesting.  The stubs
-	 * do _not_ copy the saved values from the stack into the TCS.
-	 *
-	 * unsigned long eax;
-	 * unsigned long ecx;
-	 * unsigned long edx;
-	 */
-
-};
-
-typedef struct _caller_saved _caller_saved_t;
-
-/*
- * The following structure defines the set of 'non-volatile' integer registers.
- * These registers must be preserved by a called C function.  These are the
- * only registers that need to be saved/restored when a cooperative context
- * switch occurs.
- */
-
-struct _callee_saved {
-	unsigned long esp;
-
-	/*
-	 * The following registers are considered non-volatile, i.e.
-	 * callee-save,
-	 * but their values are pushed onto the stack rather than stored in the
-	 * TCS
-	 * structure:
-	 *
-	 *  unsigned long ebp;
-	 *  unsigned long ebx;
-	 *  unsigned long esi;
-	 *  unsigned long edi;
-	 */
-
-};
-
-typedef struct _callee_saved _callee_saved_t;
-
-/*
- * The macro CONFIG_FP_SHARING shall be set to indicate that the
- * saving/restoring of the traditional x87 floating point (and MMX) registers
- * are supported by the kernel's context swapping code. The macro
- * CONFIG_SSE shall _also_ be set if saving/restoring of the XMM
- * registers is also supported in the kernel's context swapping code.
- */
-
-#ifdef CONFIG_FP_SHARING
-
-/* definition of a single x87 (floating point / MMX) register */
-
-typedef struct s_FpReg {
-	unsigned char reg[10]; /* 80 bits: ST[0-7] */
-} tFpReg;
-
-/*
- * The following is the "normal" floating point register save area, or
- * more accurately the save area required by the 'fnsave' and 'frstor'
- * instructions.  The structure matches the layout described in the
- * "Intel® 64 and IA-32 Architectures Software Developer’s Manual
- * Volume 1: Basic Architecture": Protected Mode x87 FPU State Image in
- * Memory, 32-Bit Format.
- */
-
-typedef struct s_FpRegSet {  /* # of bytes: name of register */
-	unsigned short fcw;      /* 2  : x87 FPU control word */
-	unsigned short pad1;     /* 2  : N/A */
-	unsigned short fsw;      /* 2  : x87 FPU status word */
-	unsigned short pad2;     /* 2  : N/A */
-	unsigned short ftw;      /* 2  : x87 FPU tag word */
-	unsigned short pad3;     /* 2  : N/A */
-	unsigned int fpuip;      /* 4  : x87 FPU instruction pointer offset */
-	unsigned short cs;       /* 2  : x87 FPU instruction pointer selector */
-	unsigned short fop : 11; /* 2  : x87 FPU opcode */
-	unsigned short pad4 : 5; /*    : 5 bits = 00000 */
-	unsigned int fpudp;      /* 4  : x87 FPU instr operand ptr offset */
-	unsigned short ds;       /* 2  : x87 FPU instr operand ptr selector */
-	unsigned short pad5;     /* 2  : N/A */
-	tFpReg fpReg[8];	 /* 80 : ST0 -> ST7 */
-} tFpRegSet __aligned(FP_REG_SET_ALIGN);
-
-#ifdef CONFIG_SSE
-
-/* definition of a single x87 (floating point / MMX) register */
-
-typedef struct s_FpRegEx {
-	unsigned char reg[10];  /* 80 bits: ST[0-7] or MM[0-7] */
-	unsigned char rsrvd[6]; /* 48 bits: reserved */
-} tFpRegEx;
-
-/* definition of a single XMM register */
-
-typedef struct s_XmmReg {
-	unsigned char reg[16]; /* 128 bits: XMM[0-7] */
-} tXmmReg;
-
-/*
- * The following is the "extended" floating point register save area, or
- * more accurately the save area required by the 'fxsave' and 'fxrstor'
- * instructions.  The structure matches the layout described in the
- * "Intel 64 and IA-32 Architectures Software Developer's Manual
- * Volume 2A: Instruction Set Reference, A-M", except for the bytes from offset
- * 464 to 511 since these "are available to software use. The processor does
- * not write to bytes 464:511 of an FXSAVE area".
- *
- * This structure must be aligned on a 16 byte boundary when the instructions
- * fxsave/fxrstor are used to write/read the data to/from the structure.
- */
-
-typedef struct s_FpRegSetEx /* # of bytes: name of register */
-{
-	unsigned short fcw;     /* 2  : x87 FPU control word */
-	unsigned short fsw;     /* 2  : x87 FPU status word */
-	unsigned char ftw;      /* 1  : x87 FPU abridged tag word */
-	unsigned char rsrvd0;   /* 1  : reserved */
-	unsigned short fop;     /* 2  : x87 FPU opcode */
-	unsigned int fpuip;     /* 4  : x87 FPU instruction pointer offset */
-	unsigned short cs;      /* 2  : x87 FPU instruction pointer selector */
-	unsigned short rsrvd1;  /* 2  : reserved */
-	unsigned int fpudp;     /* 4  : x87 FPU instr operand ptr offset */
-	unsigned short ds;      /* 2  : x87 FPU instr operand ptr selector */
-	unsigned short rsrvd2;  /* 2  : reserved */
-	unsigned int mxcsr;     /* 4  : MXCSR register state */
-	unsigned int mxcsrMask; /* 4  : MXCSR register mask */
-	tFpRegEx fpReg[8];      /* 128 : x87 FPU/MMX registers */
-	tXmmReg xmmReg[8];      /* 128 : XMM registers */
-	unsigned char rsrvd3[176]; /* 176 : reserved */
-} tFpRegSetEx __aligned(FP_REG_SET_ALIGN);
-
-#else /* CONFIG_SSE == 0 */
-
-typedef struct s_FpRegSetEx {
-} tFpRegSetEx;
-
-#endif /* CONFIG_SSE == 0 */
-
-#else /* CONFIG_FP_SHARING == 0 */
-
-/* empty floating point register definition */
-
-typedef struct s_FpRegSet {
-} tFpRegSet;
-
-typedef struct s_FpRegSetEx {
-} tFpRegSetEx;
-
-#endif /* CONFIG_FP_SHARING == 0 */
-
-/*
- * The following structure defines the set of 'non-volatile' x87 FPU/MMX/SSE
- * registers. These registers must be preserved by a called C function.
- * These are the only registers that need to be saved/restored when a
- * cooperative context switch occurs.
- */
-
-typedef struct s_coopFloatReg {
-
-	/*
-	 * This structure intentionally left blank, i.e. the ST[0] -> ST[7] and
-	 * XMM0 -> XMM7 registers are all 'volatile'.
-	 */
-
-} tCoopFloatReg;
-
-/*
- * The following structure defines the set of 'volatile' x87 FPU/MMX/SSE
- * registers.  These registers need not be preserved by a called C function.
- * Given that they are not preserved across function calls, they must be
- * save/restored (along with s_coopFloatReg) when a preemptive context
- * switch occurs.
- */
-
-typedef struct s_preempFloatReg {
-	union {
-		/* threads with K_FP_REGS utilize this format */
-		tFpRegSet fpRegs;
-		/* threads with K_SSE_REGS utilize this format */
-		tFpRegSetEx fpRegsEx;
-	} floatRegsUnion;
-} tPreempFloatReg;
-
-/*
- * The thread control stucture definition.  It contains the
- * various fields to manage a _single_ thread. The TCS will be aligned
- * to the appropriate architecture specific boundary via the
- * _new_thread() call.
- */
-
-struct _thread_arch {
-
-#ifdef CONFIG_GDB_INFO
-	 /* pointer to ESF saved by outermost exception wrapper */
-	void *esf;
-#endif
-
-#if (defined(CONFIG_FP_SHARING) || defined(CONFIG_GDB_INFO))
-	/*
-	 * Nested exception count to maintain setting of EXC_ACTIVE flag across
-	 * outermost exception.  EXC_ACTIVE is used by _Swap() lazy FP
-	 * save/restore and by debug tools.
-	 */
-	unsigned excNestCount; /* nested exception count */
-#endif /* CONFIG_FP_SHARING || CONFIG_GDB_INFO */
-
-	/*
-	 * The location of all floating point related structures/fields MUST be
-	 * located at the end of struct tcs.  This way only the
-	 * fibers/tasks that actually utilize non-integer capabilities need to
-	 * account for the increased memory required for storing FP state when
-	 * sizing stacks.
-	 *
-	 * Given that stacks "grow down" on IA-32, and the TCS is located
-	 * at the start of a thread's "workspace" memory, the stacks of
-	 * fibers/tasks that do not utilize floating point instruction can
-	 * effectively consume the memory occupied by the 'tCoopFloatReg' and
-	 * 'tPreempFloatReg' structures without ill effect.
-	 */
-
-	tCoopFloatReg coopFloatReg; /* non-volatile float register storage */
-	tPreempFloatReg preempFloatReg; /* volatile float register storage */
-};
-
-typedef struct _thread_arch _thread_arch_t;
 
 struct _kernel_arch {
-#if defined(CONFIG_DEBUG_INFO)
-	NANO_ISF *isf;    /* ptr to interrupt stack frame */
-#endif
 };
 
 typedef struct _kernel_arch _kernel_arch_t;
@@ -642,4 +425,4 @@ typedef struct _kernel_arch _kernel_arch_t;
 
 #endif /* _ASMLANGUAGE */
 
-#endif /* _kernel_arch_data__h_ */
+#endif /* ZEPHYR_ARCH_X86_INCLUDE_KERNEL_ARCH_DATA_H_ */

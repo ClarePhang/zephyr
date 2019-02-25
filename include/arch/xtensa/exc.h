@@ -8,12 +8,12 @@
  * @file
  * @brief Xtensa public exception handling
  *
- * Xtensa-specific nanokernel exception handling interface. Included by
+ * Xtensa-specific kernel exception handling interface. Included by
  * arch/xtensa/arch.h.
  */
 
-#ifndef _ARCH_XTENSA_EXC_H_
-#define _ARCH_XTENSA_EXC_H_
+#ifndef ZEPHYR_INCLUDE_ARCH_XTENSA_EXC_H_
+#define ZEPHYR_INCLUDE_ARCH_XTENSA_EXC_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,7 +22,7 @@ extern "C" {
 #ifdef _ASMLANGUAGE
 #else
 /**
- * @brief Nanokernel Exception Stack Frame
+ * @brief Exception Stack Frame
  *
  * A pointer to an "exception stack frame" (ESF) is passed as an argument
  * to exception handlers registered via nanoCpuExcConnect().
@@ -30,7 +30,7 @@ extern "C" {
 struct __esf {
 	/* XXX - not finished yet */
 	sys_define_gpr_with_alias(a1, sp);
-	uint32_t pc;
+	u32_t pc;
 };
 
 typedef struct __esf NANO_ESF;
@@ -42,4 +42,4 @@ extern const NANO_ESF _default_esf;
 #endif
 
 
-#endif /* _ARCH_XTENSA_EXC_H_ */
+#endif /* ZEPHYR_INCLUDE_ARCH_XTENSA_EXC_H_ */

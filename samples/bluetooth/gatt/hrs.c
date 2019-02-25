@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <stddef.h>
 #include <string.h>
 #include <errno.h>
@@ -22,19 +22,19 @@
 #include <bluetooth/uuid.h>
 #include <bluetooth/gatt.h>
 
-static struct bt_gatt_ccc_cfg hrmc_ccc_cfg[CONFIG_BLUETOOTH_MAX_PAIRED] = {};
-static uint8_t simulate_hrm;
-static uint8_t heartrate = 90;
-static uint8_t hrs_blsc;
+static struct bt_gatt_ccc_cfg hrmc_ccc_cfg[BT_GATT_CCC_MAX] = {};
+static u8_t simulate_hrm;
+static u8_t heartrate = 90U;
+static u8_t hrs_blsc;
 
 static void hrmc_ccc_cfg_changed(const struct bt_gatt_attr *attr,
-				 uint16_t value)
+				 u16_t value)
 {
 	simulate_hrm = (value == BT_GATT_CCC_NOTIFY) ? 1 : 0;
 }
 
 static ssize_t read_blsc(struct bt_conn *conn, const struct bt_gatt_attr *attr,
-			 void *buf, uint16_t len, uint16_t offset)
+			 void *buf, u16_t len, u16_t offset)
 {
 	return bt_gatt_attr_read(conn, attr, buf, len, offset, &hrs_blsc,
 				 sizeof(hrs_blsc));
@@ -43,29 +43,27 @@ static ssize_t read_blsc(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 /* Heart Rate Service Declaration */
 static struct bt_gatt_attr attrs[] = {
 	BT_GATT_PRIMARY_SERVICE(BT_UUID_HRS),
-	BT_GATT_CHARACTERISTIC(BT_UUID_HRS_MEASUREMENT, BT_GATT_CHRC_NOTIFY),
-	BT_GATT_DESCRIPTOR(BT_UUID_HRS_MEASUREMENT, BT_GATT_PERM_READ, NULL,
-			   NULL, NULL),
+	BT_GATT_CHARACTERISTIC(BT_UUID_HRS_MEASUREMENT, BT_GATT_CHRC_NOTIFY,
+			       BT_GATT_PERM_NONE, NULL, NULL, NULL),
 	BT_GATT_CCC(hrmc_ccc_cfg, hrmc_ccc_cfg_changed),
-	BT_GATT_CHARACTERISTIC(BT_UUID_HRS_BODY_SENSOR, BT_GATT_CHRC_READ),
-	BT_GATT_DESCRIPTOR(BT_UUID_HRS_BODY_SENSOR, BT_GATT_PERM_READ,
-			   read_blsc, NULL, NULL),
-	BT_GATT_CHARACTERISTIC(BT_UUID_HRS_CONTROL_POINT, BT_GATT_CHRC_WRITE),
-	/* TODO: Add write permission and callback */
-	BT_GATT_DESCRIPTOR(BT_UUID_HRS_CONTROL_POINT, BT_GATT_PERM_READ, NULL,
-			   NULL, NULL),
+	BT_GATT_CHARACTERISTIC(BT_UUID_HRS_BODY_SENSOR, BT_GATT_CHRC_READ,
+			       BT_GATT_PERM_READ, read_blsc, NULL, NULL),
+	BT_GATT_CHARACTERISTIC(BT_UUID_HRS_CONTROL_POINT, BT_GATT_CHRC_WRITE,
+			       BT_GATT_PERM_NONE, NULL, NULL, NULL),
 };
 
-void hrs_init(uint8_t blsc)
+static struct bt_gatt_service hrs_svc = BT_GATT_SERVICE(attrs);
+
+void hrs_init(u8_t blsc)
 {
 	hrs_blsc = blsc;
 
-	bt_gatt_register(attrs, ARRAY_SIZE(attrs));
+	bt_gatt_service_register(&hrs_svc);
 }
 
 void hrs_notify(void)
 {
-	static uint8_t hrm[2];
+	static u8_t hrm[2];
 
 	/* Heartrate measurements simulation */
 	if (!simulate_hrm) {
@@ -74,11 +72,11 @@ void hrs_notify(void)
 
 	heartrate++;
 	if (heartrate == 160) {
-		heartrate = 90;
+		heartrate = 90U;
 	}
 
 	hrm[0] = 0x06; /* uint8, sensor contact */
 	hrm[1] = heartrate;
 
-	bt_gatt_notify(NULL, &attrs[2], &hrm, sizeof(hrm));
+	bt_gatt_notify(NULL, &attrs[1], &hrm, sizeof(hrm));
 }

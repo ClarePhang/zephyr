@@ -9,11 +9,11 @@
  * @brief Xtensa kernel structure member offset definition file
  *
  * This module is responsible for the generation of the absolute symbols whose
- * value represents the member offsets for various Xtensa nanokernel
+ * value represents the member offsets for various Xtensa kernel
  * structures.
  *
  * All of the absolute symbols defined by this module will be present in the
- * final microkernel or nanokernel ELF image (due to the linker's reference to
+ * final kernel or kernel ELF image (due to the linker's reference to
  * the _OffsetAbsSyms symbol).
  *
  * INTERNAL
@@ -43,10 +43,6 @@ GEN_OFFSET_SYM(tPreempCoprocReg, cpStack);
 /* Xtensa-specific _thread_arch_t structure member offsets */
 GEN_OFFSET_SYM(_thread_arch_t, flags);
 
-#ifdef CONFIG_THREAD_CUSTOM_DATA
-GEN_OFFSET_SYM(_thread_arch_t, custom_data);
-#endif
-
 /* Xtensa-specific ESF structure member offsets */
 GEN_OFFSET_SYM(__esf_t, sp);
 GEN_OFFSET_SYM(__esf_t, pc);
@@ -60,6 +56,6 @@ GEN_ABSOLUTE_SYM(__tPreempt_SIZEOF, sizeof(_caller_saved_t));
 /* size of the struct k_thread structure without save area for coproc regs */
 GEN_ABSOLUTE_SYM(_K_THREAD_NO_FLOAT_SIZEOF,
 		 sizeof(struct k_thread) - sizeof(tCoopCoprocReg) -
-			 sizeof(tPreempCoprocReg));
+			 sizeof(tPreempCoprocReg) + XT_CP_DESCR_SIZE);
 
 GEN_ABS_SYM_END

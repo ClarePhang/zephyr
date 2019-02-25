@@ -5,10 +5,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __SENSOR_BME280_H__
-#define __SENSOR_BME280_H__
+#ifndef ZEPHYR_DRIVERS_SENSOR_BME280_BME280_H_
+#define ZEPHYR_DRIVERS_SENSOR_BME280_BME280_H_
 
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <device.h>
 
 #define BME280_REG_PRESS_MSB            0xF7
@@ -100,50 +100,45 @@
 					 BME280_FILTER |  \
 					 BME280_SPI_3W_DISABLE)
 
-#define BME280_I2C_ADDR                 CONFIG_BME280_I2C_ADDR
-
 struct bme280_data {
-#ifdef CONFIG_BME280_DEV_TYPE_I2C
+#ifdef DT_BOSCH_BME280_BUS_I2C
 	struct device *i2c_master;
-	uint16_t i2c_slave_addr;
-#elif defined CONFIG_BME280_DEV_TYPE_SPI
+	u16_t i2c_slave_addr;
+#elif defined DT_BOSCH_BME280_BUS_SPI
 	struct device *spi;
-	int spi_slave;
+	struct spi_config spi_cfg;
 #else
 #error "BME280 device type not specified"
 #endif
 	/* Compensation parameters. */
-	uint16_t dig_t1;
-	int16_t dig_t2;
-	int16_t dig_t3;
-	uint16_t dig_p1;
-	int16_t dig_p2;
-	int16_t dig_p3;
-	int16_t dig_p4;
-	int16_t dig_p5;
-	int16_t dig_p6;
-	int16_t dig_p7;
-	int16_t dig_p8;
-	int16_t dig_p9;
-	uint8_t dig_h1;
-	int16_t dig_h2;
-	uint8_t dig_h3;
-	int16_t dig_h4;
-	int16_t dig_h5;
-	int8_t dig_h6;
+	u16_t dig_t1;
+	s16_t dig_t2;
+	s16_t dig_t3;
+	u16_t dig_p1;
+	s16_t dig_p2;
+	s16_t dig_p3;
+	s16_t dig_p4;
+	s16_t dig_p5;
+	s16_t dig_p6;
+	s16_t dig_p7;
+	s16_t dig_p8;
+	s16_t dig_p9;
+	u8_t dig_h1;
+	s16_t dig_h2;
+	u8_t dig_h3;
+	s16_t dig_h4;
+	s16_t dig_h5;
+	s8_t dig_h6;
 
 	/* Compensated values. */
-	int32_t comp_temp;
-	uint32_t comp_press;
-	uint32_t comp_humidity;
+	s32_t comp_temp;
+	u32_t comp_press;
+	u32_t comp_humidity;
 
 	/* Carryover between temperature and pressure/humidity compensation. */
-	int32_t t_fine;
+	s32_t t_fine;
 
-	uint8_t chip_id;
+	u8_t chip_id;
 };
 
-#define SYS_LOG_DOMAIN "BME280"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-#endif /* __SENSOR_BME280_H__ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_BME280_BME280_H_ */

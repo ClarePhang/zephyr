@@ -10,9 +10,11 @@
 #include <gpio.h>
 #include <uart.h>
 
-#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BLUETOOTH_DEBUG_HCI_DRIVER)
-#include <bluetooth/log.h>
 #include <errno.h>
+
+#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_HCI_DRIVER)
+#define LOG_MODULE_NAME bt_nrf51_pm
+#include "common/log.h"
 
 #define NBLE_SWDIO_PIN	6
 #define NBLE_RESET_PIN	NBLE_SWDIO_PIN
@@ -32,7 +34,7 @@ int nrf51_allow_sleep(void)
 
 int nrf51_init(struct device *dev)
 {
-	uint8_t c;
+	u8_t c;
 	int ret;
 
 	nrf51_gpio = device_get_binding("GPIO_0");

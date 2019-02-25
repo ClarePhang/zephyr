@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef _ARM_CLOCK_CONTROL_H_
-#define _ARM_CLOCK_CONTROL_H_
+#ifndef ZEPHYR_INCLUDE_DRIVERS_CLOCK_CONTROL_ARM_CLOCK_CONTROL_H_
+#define ZEPHYR_INCLUDE_DRIVERS_CLOCK_CONTROL_ARM_CLOCK_CONTROL_H_
 
 #include <clock_control.h>
 
@@ -34,7 +34,7 @@ struct arm_clock_control_t {
 	/* Clock can be configured for 3 states: Active, Sleep, Deep Sleep */
 	enum arm_soc_state_t state;
 	/* Identifies the device on the bus */
-	uint32_t device;
+	u32_t device;
 };
 
-#endif /* _ARM_CLOCK_CONTROL_H_ */
+#endif /* ZEPHYR_INCLUDE_DRIVERS_CLOCK_CONTROL_ARM_CLOCK_CONTROL_H_ */

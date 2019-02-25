@@ -17,7 +17,6 @@
 
 #include <kernel.h>
 #include <arch/cpu.h>
-#include <board.h>
 #include <device.h>
 #include <init.h>
 
@@ -28,11 +27,15 @@ extern void *_VectorTable;
 #include <kernel_structs.h>
 #include <v2/irq.h>
 
-static uint32_t _arc_v2_irq_unit_device_power_state = DEVICE_PM_ACTIVE_STATE;
-uint32_t _saved_firq_stack;
+#ifdef CONFIG_ARC_HAS_SECURE
+#undef _ARC_V2_IRQ_VECT_BASE
+#define _ARC_V2_IRQ_VECT_BASE _ARC_V2_IRQ_VECT_BASE_S
+#endif
+
+static u32_t _arc_v2_irq_unit_device_power_state = DEVICE_PM_ACTIVE_STATE;
 struct arc_v2_irq_unit_ctx {
-	uint32_t irq_ctrl; /* Interrupt Context Saving Control Register. */
-	uint32_t irq_vect_base; /* Interrupt Vector Base. */
+	u32_t irq_ctrl; /* Interrupt Context Saving Control Register. */
+	u32_t irq_vect_base; /* Interrupt Vector Base. */
 
 	/*
 	 * IRQ configuration:
@@ -40,7 +43,7 @@ struct arc_v2_irq_unit_ctx {
 	 * - IRQ Trigger:BIT(1)
 	 * - IRQ Enable:BIT(0)
 	 */
-	uint8_t irq_config[CONFIG_NUM_IRQS - 16];
+	u8_t irq_config[CONFIG_NUM_IRQS - 16];
 };
 static struct arc_v2_irq_unit_ctx ctx;
 #endif
@@ -69,8 +72,14 @@ static int _arc_v2_irq_unit_init(struct device *unused)
 	 */
 	for (irq = 16; irq < CONFIG_NUM_IRQS; irq++) {
 		_arc_v2_aux_reg_write(_ARC_V2_IRQ_SELECT, irq);
+#ifdef CONFIG_ARC_HAS_SECURE
+		_arc_v2_aux_reg_write(_ARC_V2_IRQ_PRIORITY,
+			 (CONFIG_NUM_IRQ_PRIO_LEVELS-1) |
+			 _ARC_V2_IRQ_PRIORITY_SECURE); /* lowest priority */
+#else
 		_arc_v2_aux_reg_write(_ARC_V2_IRQ_PRIORITY,
 			 (CONFIG_NUM_IRQ_PRIO_LEVELS-1)); /* lowest priority */
+#endif
 		_arc_v2_aux_reg_write(_ARC_V2_IRQ_ENABLE, _ARC_V2_INT_DISABLE);
 		_arc_v2_aux_reg_write(_ARC_V2_IRQ_TRIGGER, _ARC_V2_INT_LEVEL);
 	}
@@ -97,12 +106,10 @@ unsigned int _arc_v2_irq_unit_trigger_get(int irq)
 }
 
 #ifdef CONFIG_DEVICE_POWER_MANAGEMENT
-extern void _firq_stack_suspend(void);
-extern void _firq_stack_resume(void);
 
 static int _arc_v2_irq_unit_suspend(struct device *dev)
 {
-	uint8_t irq;
+	u8_t irq;
 
 	ARG_UNUSED(dev);
 
@@ -110,7 +117,7 @@ static int _arc_v2_irq_unit_suspend(struct device *dev)
 	 * by IRQ auxiliary registers. For that reason we skip those
 	 * values in this loop.
 	 */
-	for (irq = 16; irq < CONFIG_NUM_IRQS; irq++) {
+	for (irq = 16U; irq < CONFIG_NUM_IRQS; irq++) {
 		_arc_v2_aux_reg_write(_ARC_V2_IRQ_SELECT, irq);
 		ctx.irq_config[irq - 16] =
 			_arc_v2_aux_reg_read(_ARC_V2_IRQ_PRIORITY) << 2;
@@ -123,8 +130,6 @@ static int _arc_v2_irq_unit_suspend(struct device *dev)
 	ctx.irq_ctrl = _arc_v2_aux_reg_read(_ARC_V2_AUX_IRQ_CTRL);
 	ctx.irq_vect_base = _arc_v2_aux_reg_read(_ARC_V2_IRQ_VECT_BASE);
 
-	_firq_stack_suspend();
-
 	_arc_v2_irq_unit_device_power_state = DEVICE_PM_SUSPEND_STATE;
 
 	return 0;
@@ -132,21 +137,25 @@ static int _arc_v2_irq_unit_suspend(struct device *dev)
 
 static int _arc_v2_irq_unit_resume(struct device *dev)
 {
-	uint8_t irq;
-	uint32_t status32;
+	u8_t irq;
+	u32_t status32;
 
 	ARG_UNUSED(dev);
-
-	_firq_stack_resume();
 
 	/* Interrupts from 0 to 15 are exceptions and they are ignored
 	 * by IRQ auxiliary registers. For that reason we skip those
 	 * values in this loop.
 	 */
-	for (irq = 16; irq < CONFIG_NUM_IRQS; irq++) {
+	for (irq = 16U; irq < CONFIG_NUM_IRQS; irq++) {
 		_arc_v2_aux_reg_write(_ARC_V2_IRQ_SELECT, irq);
+#ifdef CONFIG_ARC_HAS_SECURE
+		_arc_v2_aux_reg_write(_ARC_V2_IRQ_PRIORITY,
+				ctx.irq_config[irq - 16] >> 2 |
+				_ARC_V2_IRQ_PRIORITY_SECURE);
+#else
 		_arc_v2_aux_reg_write(_ARC_V2_IRQ_PRIORITY,
 				ctx.irq_config[irq - 16] >> 2);
+#endif
 		_arc_v2_aux_reg_write(_ARC_V2_IRQ_TRIGGER,
 				(ctx.irq_config[irq - 16] >> 1) & BIT(0));
 		_arc_v2_aux_reg_write(_ARC_V2_IRQ_ENABLE,
@@ -178,16 +187,16 @@ static int _arc_v2_irq_unit_get_state(struct device *dev)
  * the *context may include IN data or/and OUT data
  */
 static int _arc_v2_irq_unit_device_ctrl(struct device *device,
-		uint32_t ctrl_command, void *context)
+		u32_t ctrl_command, void *context)
 {
 	if (ctrl_command == DEVICE_PM_SET_POWER_STATE) {
-		if (*((uint32_t *)context) == DEVICE_PM_SUSPEND_STATE) {
+		if (*((u32_t *)context) == DEVICE_PM_SUSPEND_STATE) {
 			return _arc_v2_irq_unit_suspend(device);
-		} else if (*((uint32_t *)context) == DEVICE_PM_ACTIVE_STATE) {
+		} else if (*((u32_t *)context) == DEVICE_PM_ACTIVE_STATE) {
 			return _arc_v2_irq_unit_resume(device);
 		}
 	} else if (ctrl_command == DEVICE_PM_GET_POWER_STATE) {
-		*((uint32_t *)context) = _arc_v2_irq_unit_get_state(device);
+		*((u32_t *)context) = _arc_v2_irq_unit_get_state(device);
 		return 0;
 	}
 	return 0;

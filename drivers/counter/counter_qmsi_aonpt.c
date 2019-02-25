@@ -17,16 +17,21 @@
 #include "qm_aon_counters.h"
 #include "qm_isr.h"
 
+
 static void aonpt_int_callback(void *user_data);
 
-static counter_callback_t user_cb;
+static counter_top_callback_t user_cb;
+
+struct aonpt_config {
+	struct counter_config_info info;
+};
 
 struct aon_data {
 #ifdef CONFIG_AON_API_REENTRANCY
 	struct k_sem sem;
 #endif
 #ifdef CONFIG_DEVICE_POWER_MANAGEMENT
-	uint32_t device_power_state;
+	u32_t device_power_state;
 #endif
 };
 
@@ -98,32 +103,28 @@ static int aon_timer_qmsi_stop(struct device *dev)
 	return 0;
 }
 
-static uint32_t aon_timer_qmsi_read(struct device *dev)
+static u32_t aon_timer_qmsi_read(struct device *dev)
 {
-	uint32_t value;
+	u32_t value;
 
-	qm_aonpt_get_value(QM_AONC_0, &value);
+	qm_aonpt_get_value(QM_AONC_0, (uint32_t *)&value);
 
 	return value;
 }
 
-static int aon_timer_qmsi_set_alarm(struct device *dev,
-				    counter_callback_t callback,
-				    uint32_t count, void *user_data)
+static int aon_timer_qmsi_set_top(struct device *dev,
+				    u32_t ticks,
+				    counter_top_callback_t callback,
+				    void *user_data)
 {
 	qm_aonpt_config_t qmsi_cfg;
 	int result = 0;
-
-	/* Check if timer has been started */
-	if (QM_AONC[QM_AONC_0]->aonpt_cfg == 0) {
-		return -ENOTSUP;
-	}
 
 	user_cb = callback;
 
 	qmsi_cfg.callback = aonpt_int_callback;
 	qmsi_cfg.int_en = true;
-	qmsi_cfg.count = count;
+	qmsi_cfg.count = ticks;
 	qmsi_cfg.callback_data = user_data;
 
 	if (IS_ENABLED(CONFIG_AON_API_REENTRANCY)) {
@@ -142,7 +143,7 @@ static int aon_timer_qmsi_set_alarm(struct device *dev,
 	return result;
 }
 
-static uint32_t aon_timer_qmsi_get_pending_int(struct device *dev)
+static u32_t aon_timer_qmsi_get_pending_int(struct device *dev)
 {
 	return QM_AONC[QM_AONC_0]->aonpt_stat;
 }
@@ -151,21 +152,21 @@ static const struct counter_driver_api aon_timer_qmsi_api = {
 	.start = aon_timer_qmsi_start,
 	.stop = aon_timer_qmsi_stop,
 	.read = aon_timer_qmsi_read,
-	.set_alarm = aon_timer_qmsi_set_alarm,
+	.set_top_value = aon_timer_qmsi_set_top,
 	.get_pending_int = aon_timer_qmsi_get_pending_int,
 };
 
 #ifdef CONFIG_DEVICE_POWER_MANAGEMENT
 static qm_aonc_context_t aonc_ctx;
 
-static void aonpt_qmsi_set_power_state(struct device *dev, uint32_t power_state)
+static void aonpt_qmsi_set_power_state(struct device *dev, u32_t power_state)
 {
 	struct aon_data *context = dev->driver_data;
 
 	context->device_power_state = power_state;
 }
 
-static uint32_t aonpt_qmsi_get_power_state(struct device *dev)
+static u32_t aonpt_qmsi_get_power_state(struct device *dev)
 {
 	struct aon_data *context = dev->driver_data;
 
@@ -194,17 +195,17 @@ static int aonpt_resume_device_from_suspend(struct device *dev)
 * Implements the driver control management functionality
 * the *context may include IN data or/and OUT data
 */
-static int aonpt_qmsi_device_ctrl(struct device *dev, uint32_t ctrl_command,
+static int aonpt_qmsi_device_ctrl(struct device *dev, u32_t ctrl_command,
 				  void *context)
 {
 	if (ctrl_command == DEVICE_PM_SET_POWER_STATE) {
-		if (*((uint32_t *)context) == DEVICE_PM_SUSPEND_STATE) {
+		if (*((u32_t *)context) == DEVICE_PM_SUSPEND_STATE) {
 			return aonpt_suspend_device(dev);
-		} else if (*((uint32_t *)context) == DEVICE_PM_ACTIVE_STATE) {
+		} else if (*((u32_t *)context) == DEVICE_PM_ACTIVE_STATE) {
 			return aonpt_resume_device_from_suspend(dev);
 		}
 	} else if (ctrl_command == DEVICE_PM_GET_POWER_STATE) {
-		*((uint32_t *)context) = aonpt_qmsi_get_power_state(dev);
+		*((u32_t *)context) = aonpt_qmsi_get_power_state(dev);
 		return 0;
 	}
 
@@ -229,8 +230,7 @@ static int aon_timer_init(struct device *dev)
 	QM_IR_UNMASK_INTERRUPTS(QM_INTERRUPT_ROUTER->aonpt_0_int_mask);
 
 	if (IS_ENABLED(CONFIG_AON_API_REENTRANCY)) {
-		k_sem_init(RP_GET(dev), 0, UINT_MAX);
-		k_sem_give(RP_GET(dev));
+		k_sem_init(RP_GET(dev), 1, UINT_MAX);
 	}
 
 	aonpt_qmsi_set_power_state(dev, DEVICE_PM_ACTIVE_STATE);
@@ -238,10 +238,18 @@ static int aon_timer_init(struct device *dev)
 	return 0;
 }
 
+static const struct aonpt_config aonpt_conf_info = {
+	.info = {
+		.max_top_value = UINT32_MAX,
+		.freq = 32768,
+		.count_up = false,
+		.channels = 0,
+	}
+};
 
-DEVICE_DEFINE(aon_timer, CONFIG_AON_TIMER_QMSI_DEV_NAME, aon_timer_init,
-	      aonpt_qmsi_device_ctrl, AONPT_CONTEXT, NULL, POST_KERNEL,
-	      CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
+DEVICE_DEFINE(aon_timer, CONFIG_COUNTER_0_NAME, aon_timer_init,
+	      aonpt_qmsi_device_ctrl, AONPT_CONTEXT, &aonpt_conf_info,
+	      POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
 	      &aon_timer_qmsi_api);
 
 static void aonpt_int_callback(void *user_data)

@@ -35,12 +35,21 @@
 void helloLoop(const char *my_name,
 	       struct k_sem *my_sem, struct k_sem *other_sem)
 {
+	const char *tname;
+
 	while (1) {
 		/* take my semaphore */
 		k_sem_take(my_sem, K_FOREVER);
 
 		/* say "hello" */
-		printk("%s: Hello World from %s!\n", my_name, CONFIG_ARCH);
+		tname = k_thread_name_get(k_current_get());
+		if (tname == NULL) {
+			printk("%s: Hello World from %s!\n",
+				my_name, CONFIG_BOARD);
+		} else {
+			printk("%s: Hello World from %s!\n",
+				tname, CONFIG_BOARD);
+		}
 
 		/* wait a while, then let other thread have a turn */
 		k_sleep(SLEEPTIME);
@@ -66,8 +75,8 @@ void threadB(void *dummy1, void *dummy2, void *dummy3)
 	helloLoop(__func__, &threadB_sem, &threadA_sem);
 }
 
-char __noinit __stack threadB_stack_area[STACKSIZE];
-
+K_THREAD_STACK_DEFINE(threadB_stack_area, STACKSIZE);
+static struct k_thread threadB_data;
 
 /* threadA is a static thread that is spawned automatically */
 
@@ -78,12 +87,15 @@ void threadA(void *dummy1, void *dummy2, void *dummy3)
 	ARG_UNUSED(dummy3);
 
 	/* spawn threadB */
-	k_thread_spawn(threadB_stack_area, STACKSIZE, threadB, NULL, NULL, NULL,
-		       PRIORITY, 0, K_NO_WAIT);
+	k_tid_t tid = k_thread_create(&threadB_data, threadB_stack_area,
+			STACKSIZE, threadB, NULL, NULL, NULL,
+			PRIORITY, 0, K_NO_WAIT);
+
+	k_thread_name_set(tid, "thread_b");
 
 	/* invoke routine to ping-pong hello messages with threadB */
 	helloLoop(__func__, &threadA_sem, &threadB_sem);
 }
 
-K_THREAD_DEFINE(threadA_id, STACKSIZE, threadA, NULL, NULL, NULL,
+K_THREAD_DEFINE(thread_a, STACKSIZE, threadA, NULL, NULL, NULL,
 		PRIORITY, 0, K_NO_WAIT);

@@ -9,10 +9,12 @@
 #include <errno.h>
 #include <atomic.h>
 
-#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BLUETOOTH_DEBUG_HCI_CORE)
-#include <bluetooth/log.h>
 #include <bluetooth/hci_driver.h>
 #include <bluetooth/hci_raw.h>
+
+#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_HCI_CORE)
+#define LOG_MODULE_NAME bt_hci_raw
+#include "common/log.h"
 
 #include "hci_ecc.h"
 #include "monitor.h"
@@ -20,7 +22,7 @@
 
 static struct k_fifo *raw_rx;
 
-NET_BUF_POOL_DEFINE(hci_rx_pool, CONFIG_BLUETOOTH_RX_BUF_COUNT,
+NET_BUF_POOL_DEFINE(hci_rx_pool, CONFIG_BT_RX_BUF_COUNT,
 		    BT_BUF_RX_SIZE, BT_BUF_USER_DATA_MIN, NULL);
 
 struct bt_dev_raw bt_dev;
@@ -45,42 +47,26 @@ int bt_hci_driver_register(const struct bt_hci_driver *drv)
 	return 0;
 }
 
-struct net_buf *bt_buf_get_rx(int32_t timeout)
+struct net_buf *bt_buf_get_rx(enum bt_buf_type type, s32_t timeout)
 {
-	return net_buf_alloc(&hci_rx_pool, timeout);
+	struct net_buf *buf;
+
+	buf = net_buf_alloc(&hci_rx_pool, timeout);
+
+	if (buf) {
+		bt_buf_set_type(buf, type);
+	}
+
+	return buf;
 }
 
-struct net_buf *bt_buf_get_cmd_complete(int32_t timeout)
+struct net_buf *bt_buf_get_cmd_complete(s32_t timeout)
 {
 	struct net_buf *buf;
 
 	buf = net_buf_alloc(&hci_rx_pool, timeout);
 	if (buf) {
 		bt_buf_set_type(buf, BT_BUF_EVT);
-	}
-
-	return buf;
-}
-
-struct net_buf *bt_buf_get_evt(uint8_t opcode, int timeout)
-{
-	struct net_buf *buf;
-
-	buf = net_buf_alloc(&hci_rx_pool, timeout);
-	if (buf) {
-		bt_buf_set_type(buf, BT_BUF_EVT);
-	}
-
-	return buf;
-}
-
-struct net_buf *bt_buf_get_acl(int32_t timeout)
-{
-	struct net_buf *buf;
-
-	buf = net_buf_alloc(&hci_rx_pool, timeout);
-	if (buf) {
-		bt_buf_set_type(buf, BT_BUF_ACL_IN);
 	}
 
 	return buf;
@@ -109,6 +95,10 @@ int bt_send(struct net_buf *buf)
 
 	bt_monitor_send(bt_monitor_opcode(buf), buf->data, buf->len);
 
+	if (IS_ENABLED(CONFIG_BT_TINYCRYPT_ECC)) {
+		return bt_hci_ecc_send(buf);
+	}
+
 	return bt_dev.drv->send(buf);
 }
 
@@ -126,7 +116,7 @@ int bt_enable_raw(struct k_fifo *rx_queue)
 		return -ENODEV;
 	}
 
-	if (IS_ENABLED(CONFIG_BLUETOOTH_TINYCRYPT_ECC)) {
+	if (IS_ENABLED(CONFIG_BT_TINYCRYPT_ECC)) {
 		bt_hci_ecc_init();
 	}
 

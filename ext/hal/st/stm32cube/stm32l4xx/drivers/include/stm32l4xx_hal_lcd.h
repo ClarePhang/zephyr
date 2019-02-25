@@ -2,13 +2,11 @@
   ******************************************************************************
   * @file    stm32l4xx_hal_lcd.h
   * @author  MCD Application Team
-  * @version V1.6.0
-  * @date    28-October-2016
   * @brief   Header file of LCD Controller HAL module.
   ******************************************************************************
   * @attention
   *
-  * <h2><center>&copy; COPYRIGHT(c) 2016 STMicroelectronics</center></h2>
+  * <h2><center>&copy; COPYRIGHT(c) 2017 STMicroelectronics</center></h2>
   *
   * Redistribution and use in source and binary forms, with or without modification,
   * are permitted provided that the following conditions are met:
@@ -43,7 +41,7 @@
  extern "C" {
 #endif
 
-#if defined(STM32L433xx) || defined(STM32L443xx) || defined(STM32L476xx) || defined(STM32L486xx)
+#if defined(STM32L433xx) || defined(STM32L443xx) || defined(STM32L476xx) || defined(STM32L486xx) || defined(STM32L496xx) || defined(STM32L4A6xx)
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32l4xx_hal_def.h"
@@ -132,7 +130,7 @@ typedef struct
 
 /** @defgroup  LCD_ErrorCode LCD Error Code
   * @{
-  */ 
+  */
 #define HAL_LCD_ERROR_NONE       ((uint32_t)0x00)    /*!< No error */
 #define HAL_LCD_ERROR_FCRSF      ((uint32_t)0x01)    /*!< Synchro flag timeout error */
 #define HAL_LCD_ERROR_UDR        ((uint32_t)0x02)    /*!< Update display request flag timeout error */
@@ -142,7 +140,7 @@ typedef struct
 /**
   * @}
   */
-  
+
 /** @defgroup LCD_Prescaler LCD Prescaler
   * @{
   */
@@ -778,7 +776,7 @@ HAL_StatusTypeDef     LCD_WaitForSynchro(LCD_HandleTypeDef *hlcd);
   * @}
   */
 
-#endif /* STM32L433xx || STM32L443xx || STM32L476xx || STM32L486xx */
+#endif /* STM32L433xx || STM32L443xx || STM32L476xx || STM32L486xx || STM32L496xx || STM32L4A6xx */
 
 #ifdef __cplusplus
 }

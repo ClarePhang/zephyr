@@ -18,11 +18,12 @@
 #include <misc/util.h>
 #include <toolchain.h>
 #include <cache.h>
-#include <linker-defs.h>
+#include <linker/linker-defs.h>
 #include <arch/arc/v2/aux_regs.h>
-#include <nano_internal.h>
+#include <kernel_internal.h>
 #include <misc/__assert.h>
 #include <init.h>
+#include <stdbool.h>
 
 #if defined(CONFIG_CACHE_FLUSHING)
 
@@ -48,19 +49,19 @@
 #define DC_CTRL_OP_SUCCEEDED         0x4  /* d-cache operation succeeded */
 
 
-static int dcache_available(void)
+static bool dcache_available(void)
 {
 	unsigned long val = _arc_v2_aux_reg_read(_ARC_V2_D_CACHE_BUILD);
 
 	val &= 0xff; /* extract version */
-	return (val == 0)?0:1;
+	return (val == 0) ? false : true;
 }
 
-static void dcache_dc_ctrl(uint32_t dcache_en_mask)
+static void dcache_dc_ctrl(u32_t dcache_en_mask)
 {
-	if (!dcache_available())
-		return;
-	_arc_v2_aux_reg_write(_ARC_V2_DC_CTRL, dcache_en_mask);
+	if (dcache_available()) {
+		_arc_v2_aux_reg_write(_ARC_V2_DC_CTRL, dcache_en_mask);
+	}
 }
 
 static void dcache_enable(void)
@@ -85,9 +86,9 @@ static void dcache_enable(void)
  *
  * @return N/A
  */
-static void dcache_flush_mlines(uint32_t start_addr, uint32_t size)
+static void dcache_flush_mlines(u32_t start_addr, u32_t size)
 {
-	uint32_t end_addr;
+	u32_t end_addr;
 	unsigned int key;
 
 	if (!dcache_available() || (size == 0)) {
@@ -95,7 +96,7 @@ static void dcache_flush_mlines(uint32_t start_addr, uint32_t size)
 	}
 
 	end_addr = start_addr + size - 1;
-	start_addr &= (uint32_t)(~(DCACHE_LINE_SIZE - 1));
+	start_addr &= (u32_t)(~(DCACHE_LINE_SIZE - 1));
 
 	key = irq_lock(); /* --enter critical section-- */
 
@@ -107,8 +108,9 @@ static void dcache_flush_mlines(uint32_t start_addr, uint32_t size)
 		/* wait for flush completion */
 		do {
 			if ((_arc_v2_aux_reg_read(_ARC_V2_DC_CTRL) &
-				DC_CTRL_FLUSH_STATUS) == 0)
+			     DC_CTRL_FLUSH_STATUS) == 0) {
 				break;
+			}
 		} while (1);
 		start_addr += DCACHE_LINE_SIZE;
 	} while (start_addr <= end_addr);
@@ -137,7 +139,7 @@ static void dcache_flush_mlines(uint32_t start_addr, uint32_t size)
 
 void sys_cache_flush(vaddr_t start_addr, size_t size)
 {
-	dcache_flush_mlines((uint32_t)start_addr, (uint32_t)size);
+	dcache_flush_mlines((u32_t)start_addr, (u32_t)size);
 }
 
 
@@ -145,7 +147,7 @@ void sys_cache_flush(vaddr_t start_addr, size_t size)
 size_t sys_cache_line_size;
 static void init_dcache_line_size(void)
 {
-	uint32_t val;
+	u32_t val;
 
 	val = _arc_v2_aux_reg_read(_ARC_V2_D_CACHE_BUILD);
 	__ASSERT((val&0xff) != 0, "d-cache is not present");

@@ -4,35 +4,38 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <logging/log.h>
+LOG_MODULE_DECLARE(net_zperf_sample, LOG_LEVEL_DBG);
+
 #include <zephyr.h>
 
 #include <errno.h>
 #include <misc/printk.h>
 
-#include <net/nbuf.h>
+#include <net/net_pkt.h>
 #include <net/net_ip.h>
 #include <net/net_core.h>
 
 #include "zperf.h"
 #include "zperf_internal.h"
 
-#define TAG CMD_STR_TCP_UPLOAD" "
-
 static char sample_packet[PACKET_SIZE_MAX];
 
-void zperf_tcp_upload(struct net_context *ctx,
+void zperf_tcp_upload(const struct shell *shell,
+		      struct net_context *ctx,
 		      unsigned int duration_in_ms,
 		      unsigned int packet_size,
 		      struct zperf_results *results)
 {
-	uint32_t duration = MSEC_TO_HW_CYCLES(duration_in_ms);
-	uint32_t nb_packets = 0, nb_errors = 0;
-	uint32_t start_time, last_print_time, last_loop_time, end_time;
-	uint8_t time_elapsed = 0, finished = 0;
+	u32_t duration = MSEC_TO_HW_CYCLES(duration_in_ms);
+	u32_t nb_packets = 0U, nb_errors = 0U;
+	u32_t start_time, last_print_time, last_loop_time, end_time;
+	u8_t time_elapsed = 0U, finished = 0U;
 
 	if (packet_size > PACKET_SIZE_MAX) {
-		printk(TAG "WARNING! packet size too large! max size: %u\n",
-		       PACKET_SIZE_MAX);
+		shell_fprintf(shell, SHELL_WARNING,
+			      "Packet size too large! max size: %u\n",
+			      PACKET_SIZE_MAX);
 		packet_size = PACKET_SIZE_MAX;
 	}
 
@@ -40,66 +43,64 @@ void zperf_tcp_upload(struct net_context *ctx,
 	start_time = k_cycle_get_32();
 	last_print_time = start_time;
 	last_loop_time = start_time;
-	printk(TAG "New session started\n");
 
-	memset(sample_packet, 'z', sizeof(sample_packet));
+	shell_fprintf(shell, SHELL_NORMAL,
+		      "New session started\n");
+
+	(void)memset(sample_packet, 'z', sizeof(sample_packet));
 
 	do {
 		int ret = 0;
-		struct net_buf *buf, *frag;
-		uint32_t loop_time;
-		bool st;
+		struct net_pkt *pkt;
+		struct net_buf *frag;
+		u32_t loop_time;
 
 		/* Timestamps */
 		loop_time = k_cycle_get_32();
 		last_loop_time = loop_time;
 
-		buf = net_nbuf_get_tx(ctx, K_FOREVER);
-		if (!buf) {
-			printk(TAG "ERROR! Failed to retrieve a buffer\n");
+		pkt = net_pkt_get_tx(ctx, K_FOREVER);
+		if (!pkt) {
+			shell_fprintf(shell, SHELL_ERROR,
+				      "Failed to retrieve a packet\n");
 			break;
 		}
 
-		frag = net_nbuf_get_data(ctx, K_FOREVER);
+		frag = net_pkt_get_data(ctx, K_FOREVER);
 		if (!frag) {
-			net_nbuf_unref(buf);
-			printk(TAG "ERROR! Failed to retrieve a fragment\n");
+			net_pkt_unref(pkt);
+			shell_fprintf(shell, SHELL_ERROR,
+				      "Failed to retrieve a fragment\n");
 			break;
 		}
 
-		net_buf_frag_add(buf, frag);
+		net_pkt_frag_add(pkt, frag);
 
 		/* Fill in the TCP payload */
-		st = net_nbuf_append(buf, sizeof(sample_packet),
-				     sample_packet, K_FOREVER);
-		if (!st) {
-			printk(TAG "ERROR! Failed to fill packet\n");
-
-			net_nbuf_unref(buf);
-			nb_errors++;
-			break;
-		}
+		net_pkt_append(pkt, sizeof(sample_packet),
+			       sample_packet, K_FOREVER);
 
 		/* Send the packet */
-		ret = net_context_send(buf, NULL, K_NO_WAIT, NULL, NULL);
+		ret = net_context_send(pkt, NULL, K_NO_WAIT, NULL, NULL);
 		if (ret < 0) {
-			printk(TAG "ERROR! Failed to send the buffer (%d)\n",
-			       ret);
+			shell_fprintf(shell, SHELL_WARNING,
+				      "Failed to send the packet (%d)\n",
+				      ret);
 
-			net_nbuf_unref(buf);
+			net_pkt_unref(pkt);
 			nb_errors++;
 			break;
 		} else {
 			nb_packets++;
 
 			if (time_elapsed) {
-				finished = 1;
+				finished = 1U;
 			}
 		}
 
 		if (!time_elapsed && time_delta(start_time,
 						last_loop_time) > duration) {
-			time_elapsed = 1;
+			time_elapsed = 1U;
 		}
 
 		k_yield();

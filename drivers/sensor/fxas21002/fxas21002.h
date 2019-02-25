@@ -8,10 +8,6 @@
 #include <i2c.h>
 #include <gpio.h>
 
-#define SYS_LOG_DOMAIN "FXAS21002"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-
 #define FXAS21002_REG_STATUS		0x00
 #define FXAS21002_REG_OUTXMSB		0x01
 #define FXAS21002_REG_INT_SOURCE	0x0b
@@ -64,12 +60,12 @@ struct fxas21002_config {
 	char *i2c_name;
 #ifdef CONFIG_FXAS21002_TRIGGER
 	char *gpio_name;
-	uint8_t gpio_pin;
+	u8_t gpio_pin;
 #endif
-	uint8_t i2c_address;
-	uint8_t whoami;
+	u8_t i2c_address;
+	u8_t whoami;
 	enum fxas21002_range range;
-	uint8_t dr;
+	u8_t dr;
 };
 
 struct fxas21002_data {
@@ -77,27 +73,28 @@ struct fxas21002_data {
 	struct k_sem sem;
 #ifdef CONFIG_FXAS21002_TRIGGER
 	struct device *gpio;
-	uint8_t gpio_pin;
+	u8_t gpio_pin;
 	struct gpio_callback gpio_cb;
 	sensor_trigger_handler_t drdy_handler;
 #endif
 #ifdef CONFIG_FXAS21002_TRIGGER_OWN_THREAD
-	char __stack thread_stack[CONFIG_FXAS21002_THREAD_STACK_SIZE];
+	K_THREAD_STACK_MEMBER(thread_stack, CONFIG_FXAS21002_THREAD_STACK_SIZE);
+	struct k_thread thread;
 	struct k_sem trig_sem;
 #endif
 #ifdef CONFIG_FXAS21002_TRIGGER_GLOBAL_THREAD
 	struct k_work work;
 	struct device *dev;
 #endif
-	int16_t raw[FXAS21002_MAX_NUM_CHANNELS];
+	s16_t raw[FXAS21002_MAX_NUM_CHANNELS];
 };
 
 int fxas21002_get_power(struct device *dev, enum fxas21002_power *power);
 int fxas21002_set_power(struct device *dev, enum fxas21002_power power);
 
-uint32_t fxas21002_get_transition_time(enum fxas21002_power start,
+u32_t fxas21002_get_transition_time(enum fxas21002_power start,
 				       enum fxas21002_power end,
-				       uint8_t dr);
+				       u8_t dr);
 
 #if CONFIG_FXAS21002_TRIGGER
 int fxas21002_trigger_init(struct device *dev);

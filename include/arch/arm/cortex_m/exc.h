@@ -11,39 +11,38 @@
  * ARM-specific kernel exception handling interface. Included by arm/arch.h.
  */
 
-#ifndef _ARCH_ARM_CORTEXM_EXC_H_
-#define _ARCH_ARM_CORTEXM_EXC_H_
+#ifndef ZEPHYR_INCLUDE_ARCH_ARM_CORTEX_M_EXC_H_
+#define ZEPHYR_INCLUDE_ARCH_ARM_CORTEX_M_EXC_H_
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* for assembler, only works with constants */
-#define _EXC_PRIO(pri) (((pri) << (8 - CONFIG_NUM_IRQ_PRIO_BITS)) & 0xff)
+#define _EXC_PRIO(pri) (((pri) << (8 - DT_NUM_IRQ_PRIO_BITS)) & 0xff)
 
-#ifdef CONFIG_ZERO_LATENCY_IRQS
-#define _ZERO_LATENCY_IRQS_RESERVED_PRIO 1
-#else
-#define _ZERO_LATENCY_IRQS_RESERVED_PRIO 0
-#endif
-
-#if defined(CONFIG_CPU_CORTEX_M_HAS_PROGRAMMABLE_FAULT_PRIOS) || \
-	defined(CONFIG_CPU_CORTEX_M_HAS_BASEPRI)
+#if defined(CONFIG_CPU_CORTEX_M_HAS_PROGRAMMABLE_FAULT_PRIOS)
 #define _EXCEPTION_RESERVED_PRIO 1
 #else
 #define _EXCEPTION_RESERVED_PRIO 0
 #endif
 
-#define _IRQ_PRIO_OFFSET \
-	(_ZERO_LATENCY_IRQS_RESERVED_PRIO + \
-	 _EXCEPTION_RESERVED_PRIO)
+#define _EXC_FAULT_PRIO 0
+#ifdef CONFIG_ZERO_LATENCY_IRQS
+#define _EXC_ZERO_LATENCY_IRQS_PRIO 0
+#define _EXC_SVC_PRIO 1
+#define _IRQ_PRIO_OFFSET (_EXCEPTION_RESERVED_PRIO + 1)
+#else
+#define _EXC_SVC_PRIO 0
+#define _IRQ_PRIO_OFFSET (_EXCEPTION_RESERVED_PRIO)
+#endif
 
 #define _EXC_IRQ_DEFAULT_PRIO _EXC_PRIO(_IRQ_PRIO_OFFSET)
 
 #ifdef _ASMLANGUAGE
 GTEXT(_ExcExit);
 #else
-#include <stdint.h>
+#include <zephyr/types.h>
 
 struct __esf {
 	sys_define_gpr_with_alias(a1, r0);
@@ -53,17 +52,15 @@ struct __esf {
 	sys_define_gpr_with_alias(ip, r12);
 	sys_define_gpr_with_alias(lr, r14);
 	sys_define_gpr_with_alias(pc, r15);
-	uint32_t xpsr;
+	u32_t xpsr;
 #ifdef CONFIG_FLOAT
 	float s[16];
-	uint32_t fpscr;
-	uint32_t undefined;
+	u32_t fpscr;
+	u32_t undefined;
 #endif
 };
 
 typedef struct __esf NANO_ESF;
-
-extern const NANO_ESF _default_esf;
 
 extern void _ExcExit(void);
 
@@ -81,4 +78,4 @@ extern void sys_exc_esf_dump(NANO_ESF *esf);
 }
 #endif
 
-#endif /* _ARCH_ARM_CORTEXM_EXC_H_ */
+#endif /* ZEPHYR_INCLUDE_ARCH_ARM_CORTEX_M_EXC_H_ */

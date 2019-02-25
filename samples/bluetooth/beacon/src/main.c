@@ -6,7 +6,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <stddef.h>
 #include <misc/printk.h>
 #include <misc/util.h>
@@ -14,7 +14,7 @@
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/hci.h>
 
-#define DEVICE_NAME CONFIG_BLUETOOTH_DEVICE_NAME
+#define DEVICE_NAME CONFIG_BT_DEVICE_NAME
 #define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
 
 /*

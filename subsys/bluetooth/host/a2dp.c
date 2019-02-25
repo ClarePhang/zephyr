@@ -17,12 +17,14 @@
 #include <misc/printk.h>
 #include <assert.h>
 
-#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BLUETOOTH_DEBUG_A2DP)
-#include <bluetooth/log.h>
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/l2cap.h>
 #include <bluetooth/avdtp.h>
 #include <bluetooth/a2dp.h>
+
+#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_A2DP)
+#define LOG_MODULE_NAME bt_a2dp
+#include "common/log.h"
 
 #include "hci_core.h"
 #include "conn_internal.h"
@@ -36,16 +38,16 @@ struct bt_a2dp {
 };
 
 /* Connections */
-static struct bt_a2dp connection[CONFIG_BLUETOOTH_MAX_CONN];
+static struct bt_a2dp connection[CONFIG_BT_MAX_CONN];
 
 void a2d_reset(struct bt_a2dp *a2dp_conn)
 {
-	memset(a2dp_conn, 0, sizeof(struct bt_a2dp));
+	(void)memset(a2dp_conn, 0, sizeof(struct bt_a2dp));
 }
 
 struct bt_a2dp *get_new_connection(struct bt_conn *conn)
 {
-	int8_t i, free;
+	s8_t i, free;
 
 	free = A2DP_NO_SPACE;
 
@@ -55,7 +57,7 @@ struct bt_a2dp *get_new_connection(struct bt_conn *conn)
 	}
 
 	/* Find a space */
-	for (i = 0; i < CONFIG_BLUETOOTH_MAX_CONN; i++) {
+	for (i = 0; i < CONFIG_BT_MAX_CONN; i++) {
 		if (connection[i].session.br_chan.chan.conn == conn) {
 			BT_DBG("Conn already exists");
 			return NULL;
@@ -143,7 +145,7 @@ struct bt_a2dp *bt_a2dp_connect(struct bt_conn *conn)
 }
 
 int bt_a2dp_register_endpoint(struct bt_a2dp_endpoint *endpoint,
-			      uint8_t media_type, uint8_t role)
+			      u8_t media_type, u8_t role)
 {
 	int err;
 

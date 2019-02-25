@@ -1,7 +1,7 @@
 /* hmac.c - TinyCrypt implementation of the HMAC algorithm */
 
 /*
- *  Copyright (C) 2015 by Intel Corporation, All Rights Reserved.
+ *  Copyright (C) 2017 by Intel Corporation, All Rights Reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
  *  modification, are permitted provided that the following conditions are met:
@@ -34,11 +34,11 @@
 #include <tinycrypt/constants.h>
 #include <tinycrypt/utils.h>
 
-static void rekey(uint8_t *key, const uint8_t *new_key, uint32_t key_size)
+static void rekey(uint8_t *key, const uint8_t *new_key, unsigned int key_size)
 {
 	const uint8_t inner_pad = (uint8_t) 0x36;
 	const uint8_t outer_pad = (uint8_t) 0x5c;
-	uint32_t i;
+	unsigned int i;
 
 	for (i = 0; i < key_size; ++i) {
 		key[i] = inner_pad ^ new_key[i];
@@ -49,23 +49,22 @@ static void rekey(uint8_t *key, const uint8_t *new_key, uint32_t key_size)
 	}
 }
 
-int32_t tc_hmac_set_key(TCHmacState_t ctx,
-			const uint8_t *key,
-			uint32_t key_size)
+int tc_hmac_set_key(TCHmacState_t ctx, const uint8_t *key,
+		    unsigned int key_size)
 {
-	/* input sanity check: */
+	/* Input sanity check */
 	if (ctx == (TCHmacState_t) 0 ||
 	    key == (const uint8_t *) 0 ||
 	    key_size == 0) {
 		return TC_CRYPTO_FAIL;
 	}
 
-	const uint8_t dummy_key[key_size];
+	const uint8_t dummy_key[TC_SHA256_BLOCK_SIZE];
 	struct tc_hmac_state_struct dummy_state;
 
 	if (key_size <= TC_SHA256_BLOCK_SIZE) {
 		/*
-		 * The next three lines consist of dummy calls just to avoid
+		 * The next three calls are dummy calls just to avoid
 		 * certain timing attacks. Without these dummy calls,
 		 * adversaries would be able to learn whether the key_size is
 		 * greater than TC_SHA256_BLOCK_SIZE by measuring the time
@@ -93,25 +92,25 @@ int32_t tc_hmac_set_key(TCHmacState_t ctx,
 	return TC_CRYPTO_SUCCESS;
 }
 
-int32_t tc_hmac_init(TCHmacState_t ctx)
+int tc_hmac_init(TCHmacState_t ctx)
 {
+
 	/* input sanity check: */
 	if (ctx == (TCHmacState_t) 0) {
 		return TC_CRYPTO_FAIL;
 	}
 
-	(void)tc_sha256_init(&ctx->hash_state);
-	(void)tc_sha256_update(&ctx->hash_state,
-			       ctx->key,
-			       TC_SHA256_BLOCK_SIZE);
+  (void) tc_sha256_init(&ctx->hash_state);
+  (void) tc_sha256_update(&ctx->hash_state, ctx->key, TC_SHA256_BLOCK_SIZE);
 
 	return TC_CRYPTO_SUCCESS;
 }
 
-int32_t tc_hmac_update(TCHmacState_t ctx,
-		       const void *data,
-		       uint32_t data_length)
+int tc_hmac_update(TCHmacState_t ctx,
+		   const void *data,
+		   unsigned int data_length)
 {
+
 	/* input sanity check: */
 	if (ctx == (TCHmacState_t) 0) {
 		return TC_CRYPTO_FAIL;
@@ -122,8 +121,9 @@ int32_t tc_hmac_update(TCHmacState_t ctx,
 	return TC_CRYPTO_SUCCESS;
 }
 
-int32_t tc_hmac_final(uint8_t *tag, uint32_t taglen, TCHmacState_t ctx)
+int tc_hmac_final(uint8_t *tag, unsigned int taglen, TCHmacState_t ctx)
 {
+
 	/* input sanity check: */
 	if (tag == (uint8_t *) 0 ||
 	    taglen != TC_SHA256_DIGEST_SIZE ||

@@ -8,10 +8,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __SENSOR_LSM6DS0_H__
-#define __SENSOR_LSM6DS0_H__
+#ifndef ZEPHYR_DRIVERS_SENSOR_LSM6DS0_LSM6DS0_H_
+#define ZEPHYR_DRIVERS_SENSOR_LSM6DS0_LSM6DS0_H_
 
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <i2c.h>
 #include <misc/util.h>
 
@@ -461,7 +461,7 @@
 
 struct lsm6ds0_config {
 	char *i2c_master_dev_name;
-	uint16_t i2c_slave_addr;
+	u16_t i2c_slave_addr;
 };
 
 struct lsm6ds0_data {
@@ -492,7 +492,4 @@ struct lsm6ds0_data {
 #endif
 };
 
-#define SYS_LOG_DOMAIN "LSM6DS0"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-#endif /* __SENSOR_LSM6DS0_H__ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_LSM6DS0_LSM6DS0_H_ */

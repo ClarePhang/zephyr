@@ -6,7 +6,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <stddef.h>
 #include <string.h>
 #include <errno.h>
@@ -21,8 +21,6 @@
 #include <bluetooth/uuid.h>
 #include <bluetooth/gatt.h>
 
-#define DEVICE_NAME CONFIG_BLUETOOTH_DEVICE_NAME
-#define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
 #define NUMBER_OF_SLOTS 1
 #define EDS_VERSION 0x00
 #define EDS_URL_READ_OFFSET 2
@@ -38,11 +36,6 @@ static const struct bt_data ad[] = {
 	BT_DATA_BYTES(BT_DATA_UUID128_ALL,
 		      0x95, 0xe2, 0xed, 0xeb, 0x1b, 0xa0, 0x39, 0x8a,
 		      0xdf, 0x4b, 0xd3, 0x8e, 0x00, 0x75, 0xc8, 0xa3),
-};
-
-/* Set Scan Response data */
-static const struct bt_data sd[] = {
-	BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
 };
 
 /* Eddystone Service Variables */
@@ -127,12 +120,12 @@ enum {
 };
 
 struct eds_capabilities {
-	uint8_t version;
-	uint8_t slots;
-	uint8_t uids;
-	uint8_t adv_types;
-	uint16_t slot_types;
-	uint8_t tx_power;
+	u8_t version;
+	u8_t slots;
+	u8_t uids;
+	u8_t adv_types;
+	u16_t slot_types;
+	u8_t tx_power;
 } __packed;
 
 static struct eds_capabilities eds_caps = {
@@ -141,7 +134,7 @@ static struct eds_capabilities eds_caps = {
 	.slot_types = EDS_SLOT_URL, /* TODO: Add support for other slot types */
 };
 
-uint8_t eds_active_slot;
+u8_t eds_active_slot;
 
 enum {
 	EDS_LOCKED = 0x00,
@@ -150,14 +143,14 @@ enum {
 };
 
 struct eds_slot {
-	uint8_t type;
-	uint8_t state;
-	uint8_t connectable;
-	uint16_t interval;
-	uint8_t tx_power;
-	uint8_t adv_tx_power;
-	uint8_t lock[16];
-	uint8_t challenge[16];
+	u8_t type;
+	u8_t state;
+	u8_t connectable;
+	u16_t interval;
+	u8_t tx_power;
+	u8_t adv_tx_power;
+	u8_t lock[16];
+	u8_t challenge[16];
 	struct bt_data ad[3];
 };
 
@@ -185,7 +178,7 @@ static struct eds_slot eds_slots[NUMBER_OF_SLOTS] = {
 };
 
 static ssize_t read_caps(struct bt_conn *conn, const struct bt_gatt_attr *attr,
-			 void *buf, uint16_t len, uint16_t offset)
+			 void *buf, u16_t len, u16_t offset)
 {
 	const struct eds_capabilities *caps = attr->user_data;
 
@@ -194,7 +187,7 @@ static ssize_t read_caps(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 }
 
 static ssize_t read_slot(struct bt_conn *conn, const struct bt_gatt_attr *attr,
-			 void *buf, uint16_t len, uint16_t offset)
+			 void *buf, u16_t len, u16_t offset)
 {
 	return bt_gatt_attr_read(conn, attr, buf, len, offset,
 				 &eds_active_slot, sizeof(eds_active_slot));
@@ -202,9 +195,9 @@ static ssize_t read_slot(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
 static ssize_t write_slot(struct bt_conn *conn,
 			  const struct bt_gatt_attr *attr, const void *buf,
-			  uint16_t len, uint16_t offset, uint8_t flags)
+			  u16_t len, u16_t offset, u8_t flags)
 {
-	uint8_t value;
+	u8_t value;
 
 	if (offset + len > sizeof(value)) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
@@ -223,7 +216,7 @@ static ssize_t write_slot(struct bt_conn *conn,
 
 static ssize_t read_tx_power(struct bt_conn *conn,
 			     const struct bt_gatt_attr *attr,
-			     void *buf, uint16_t len, uint16_t offset)
+			     void *buf, u16_t len, u16_t offset)
 {
 	struct eds_slot *slot = &eds_slots[eds_active_slot];
 
@@ -237,8 +230,8 @@ static ssize_t read_tx_power(struct bt_conn *conn,
 
 static ssize_t write_tx_power(struct bt_conn *conn,
 			      const struct bt_gatt_attr *attr,
-			      const void *buf, uint16_t len, uint16_t offset,
-			      uint8_t flags)
+			      const void *buf, u16_t len, u16_t offset,
+			      u8_t flags)
 {
 	struct eds_slot *slot = &eds_slots[eds_active_slot];
 
@@ -257,7 +250,7 @@ static ssize_t write_tx_power(struct bt_conn *conn,
 
 static ssize_t read_adv_tx_power(struct bt_conn *conn,
 				 const struct bt_gatt_attr *attr,
-				 void *buf, uint16_t len, uint16_t offset)
+				 void *buf, u16_t len, u16_t offset)
 {
 	struct eds_slot *slot = &eds_slots[eds_active_slot];
 
@@ -271,9 +264,9 @@ static ssize_t read_adv_tx_power(struct bt_conn *conn,
 
 static ssize_t write_adv_tx_power(struct bt_conn *conn,
 				  const struct bt_gatt_attr *attr,
-				  const void *buf, uint16_t len,
-				  uint16_t offset,
-				  uint8_t flags)
+				  const void *buf, u16_t len,
+				  u16_t offset,
+				  u8_t flags)
 {
 	struct eds_slot *slot = &eds_slots[eds_active_slot];
 
@@ -292,7 +285,7 @@ static ssize_t write_adv_tx_power(struct bt_conn *conn,
 
 static ssize_t read_interval(struct bt_conn *conn,
 			     const struct bt_gatt_attr *attr,
-			     void *buf, uint16_t len, uint16_t offset)
+			     void *buf, u16_t len, u16_t offset)
 {
 	struct eds_slot *slot = &eds_slots[eds_active_slot];
 
@@ -305,7 +298,7 @@ static ssize_t read_interval(struct bt_conn *conn,
 }
 
 static ssize_t read_lock(struct bt_conn *conn, const struct bt_gatt_attr *attr,
-			 void *buf, uint16_t len, uint16_t offset)
+			 void *buf, u16_t len, u16_t offset)
 {
 	struct eds_slot *slot = &eds_slots[eds_active_slot];
 
@@ -315,10 +308,10 @@ static ssize_t read_lock(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
 static ssize_t write_lock(struct bt_conn *conn,
 			  const struct bt_gatt_attr *attr, const void *buf,
-			  uint16_t len, uint16_t offset, uint8_t flags)
+			  u16_t len, u16_t offset, u8_t flags)
 {
 	struct eds_slot *slot = &eds_slots[eds_active_slot];
-	uint8_t value;
+	u8_t value;
 
 	if (slot->state == EDS_LOCKED) {
 		return BT_GATT_ERR(BT_ATT_ERR_WRITE_NOT_PERMITTED);
@@ -350,7 +343,7 @@ static ssize_t write_lock(struct bt_conn *conn,
 
 static ssize_t read_unlock(struct bt_conn *conn,
 			   const struct bt_gatt_attr *attr,
-			   void *buf, uint16_t len, uint16_t offset)
+			   void *buf, u16_t len, u16_t offset)
 {
 	struct eds_slot *slot = &eds_slots[eds_active_slot];
 
@@ -358,7 +351,6 @@ static ssize_t read_unlock(struct bt_conn *conn,
 		return BT_GATT_ERR(BT_ATT_ERR_READ_NOT_PERMITTED);
 	}
 
-#if !defined(CONFIG_NBLE)
 	/* returns a 128-bit challenge token. This token is for one-time use
 	 * and cannot be replayed.
 	 */
@@ -368,14 +360,11 @@ static ssize_t read_unlock(struct bt_conn *conn,
 
 	return bt_gatt_attr_read(conn, attr, buf, len, offset, slot->challenge,
 				 sizeof(slot->challenge));
-#else
-	return BT_GATT_ERR(BT_ATT_ERR_NOT_SUPPORTED);
-#endif /* CONFIG_NBLE */
 }
 
 static ssize_t write_unlock(struct bt_conn *conn,
 			    const struct bt_gatt_attr *attr, const void *buf,
-			    uint16_t len, uint16_t offset, uint8_t flags)
+			    u16_t len, u16_t offset, u8_t flags)
 {
 	struct eds_slot *slot = &eds_slots[eds_active_slot];
 
@@ -390,23 +379,23 @@ static ssize_t write_unlock(struct bt_conn *conn,
 	return BT_GATT_ERR(BT_ATT_ERR_NOT_SUPPORTED);
 }
 
-static uint8_t eds_ecdh[32] = {}; /* TODO: Add ECDH key */
+static u8_t eds_ecdh[32] = {}; /* TODO: Add ECDH key */
 
 static ssize_t read_ecdh(struct bt_conn *conn, const struct bt_gatt_attr *attr,
-			 void *buf, uint16_t len, uint16_t offset)
+			 void *buf, u16_t len, u16_t offset)
 {
-	uint8_t *value = attr->user_data;
+	u8_t *value = attr->user_data;
 
 	return bt_gatt_attr_read(conn, attr, buf, len, offset, value,
 				 sizeof(eds_ecdh));
 }
 
-static uint8_t eds_eid[16] = {}; /* TODO: Add EID key */
+static u8_t eds_eid[16] = {}; /* TODO: Add EID key */
 
 static ssize_t read_eid(struct bt_conn *conn, const struct bt_gatt_attr *attr,
-			void *buf, uint16_t len, uint16_t offset)
+			void *buf, u16_t len, u16_t offset)
 {
-	uint8_t *value = attr->user_data;
+	u8_t *value = attr->user_data;
 
 	return bt_gatt_attr_read(conn, attr, buf, len, offset, value,
 				 sizeof(eds_eid));
@@ -414,7 +403,7 @@ static ssize_t read_eid(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
 static ssize_t read_adv_data(struct bt_conn *conn,
 			     const struct bt_gatt_attr *attr, void *buf,
-			     uint16_t len, uint16_t offset)
+			     u16_t len, u16_t offset)
 {
 	struct eds_slot *slot = &eds_slots[eds_active_slot];
 
@@ -434,7 +423,7 @@ static ssize_t read_adv_data(struct bt_conn *conn,
 				 slot->ad[2].data_len - EDS_URL_READ_OFFSET);
 }
 
-static int eds_slot_restart(struct eds_slot *slot, uint8_t type)
+static int eds_slot_restart(struct eds_slot *slot, u8_t type)
 {
 	int err;
 
@@ -443,11 +432,11 @@ static int eds_slot_restart(struct eds_slot *slot, uint8_t type)
 
 	if (type == EDS_TYPE_NONE) {
 		/* Restore connectable if slot */
-		err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad),
-				      sd, ARRAY_SIZE(sd));
+		err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad),
+				      NULL, 0);
 	} else {
-		err = bt_le_adv_start(BT_LE_ADV_NCONN, slot->ad,
-				      ARRAY_SIZE(slot->ad), sd, ARRAY_SIZE(sd));
+		err = bt_le_adv_start(BT_LE_ADV_NCONN_NAME, slot->ad,
+				      ARRAY_SIZE(slot->ad), NULL, 0);
 	}
 
 	if (err) {
@@ -462,11 +451,11 @@ static int eds_slot_restart(struct eds_slot *slot, uint8_t type)
 
 static ssize_t write_adv_data(struct bt_conn *conn,
 			      const struct bt_gatt_attr *attr,
-			      const void *buf, uint16_t len, uint16_t offset,
-			      uint8_t flags)
+			      const void *buf, u16_t len, u16_t offset,
+			      u8_t flags)
 {
 	struct eds_slot *slot = &eds_slots[eds_active_slot];
-	uint8_t type;
+	u8_t type;
 
 	if (slot->state == EDS_LOCKED) {
 		return BT_GATT_ERR(BT_ATT_ERR_READ_NOT_PERMITTED);
@@ -498,7 +487,7 @@ static ssize_t write_adv_data(struct bt_conn *conn,
 		 * controlled by characteristics 4 (Radio Tx Power) and
 		 * 5 (Advertised Tx Power).
 		 */
-		slot->ad[2].data_len = min(slot->ad[2].data_len,
+		slot->ad[2].data_len = MIN(slot->ad[2].data_len,
 					   len + EDS_URL_WRITE_OFFSET);
 		memcpy(&slot->ad[2].data + EDS_URL_WRITE_OFFSET, buf,
 		       slot->ad[2].data_len - EDS_URL_WRITE_OFFSET);
@@ -520,8 +509,8 @@ static ssize_t write_adv_data(struct bt_conn *conn,
 
 static ssize_t write_reset(struct bt_conn *conn,
 			   const struct bt_gatt_attr *attr,
-			   const void *buf, uint16_t len, uint16_t offset,
-			   uint8_t flags)
+			   const void *buf, u16_t len, u16_t offset,
+			   u8_t flags)
 {
 	/* TODO: Power cycle or reload for storage the values */
 	return BT_GATT_ERR(BT_ATT_ERR_WRITE_NOT_PERMITTED);
@@ -529,9 +518,9 @@ static ssize_t write_reset(struct bt_conn *conn,
 
 static ssize_t read_connectable(struct bt_conn *conn,
 			     const struct bt_gatt_attr *attr, void *buf,
-			     uint16_t len, uint16_t offset)
+			     u16_t len, u16_t offset)
 {
-	uint8_t connectable = 0x01;
+	u8_t connectable = 0x01;
 
 	/* Returning a non-zero value indicates that the beacon is capable
 	 * of becoming non-connectable
@@ -542,8 +531,8 @@ static ssize_t read_connectable(struct bt_conn *conn,
 
 static ssize_t write_connectable(struct bt_conn *conn,
 				 const struct bt_gatt_attr *attr,
-				 const void *buf, uint16_t len, uint16_t offset,
-				 uint8_t flags)
+				 const void *buf, u16_t len, u16_t offset,
+				 u8_t flags)
 {
 	struct eds_slot *slot = &eds_slots[eds_active_slot];
 
@@ -570,86 +559,65 @@ static ssize_t write_connectable(struct bt_conn *conn,
 /* Eddystone Configuration Service Declaration */
 static struct bt_gatt_attr eds_attrs[] = {
 	BT_GATT_PRIMARY_SERVICE(&eds_uuid),
-	/* Capabilities */
-	BT_GATT_CHARACTERISTIC(&eds_caps_uuid.uuid, BT_GATT_CHRC_READ),
-	/* Readable only when unlocked. Never writable. */
-	BT_GATT_DESCRIPTOR(&eds_caps_uuid.uuid, BT_GATT_PERM_READ,
-			   read_caps, NULL, &eds_caps),
-	/* Active slot */
+	/* Capabilities: Readable only when unlocked. Never writable. */
+	BT_GATT_CHARACTERISTIC(&eds_caps_uuid.uuid, BT_GATT_CHRC_READ,
+			       BT_GATT_PERM_READ, read_caps, NULL, &eds_caps),
+	/* Active slot: Must be unlocked for both read and write. */
 	BT_GATT_CHARACTERISTIC(&eds_slot_uuid.uuid,
-			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE),
-	/* Must be unlocked for both read and write. */
-	BT_GATT_DESCRIPTOR(&eds_slot_uuid.uuid,
-			   BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-			   read_slot, write_slot, NULL),
-	/* Advertising Interval */
-	BT_GATT_CHARACTERISTIC(&eds_intv_uuid.uuid, BT_GATT_CHRC_READ),
-	/* Must be unlocked for both read and write. */
-	BT_GATT_DESCRIPTOR(&eds_intv_uuid.uuid, BT_GATT_PERM_READ,
-			   read_interval, NULL, NULL),
-	/* Radio TX Power */
+			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
+			       BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
+			       read_slot, write_slot, NULL),
+	/* Advertising Interval: Must be unlocked for both read and write. */
+	BT_GATT_CHARACTERISTIC(&eds_intv_uuid.uuid, BT_GATT_CHRC_READ,
+			       BT_GATT_PERM_READ, read_interval, NULL, NULL),
+	/* Radio TX Power: Must be unlocked for both read and write. */
 	BT_GATT_CHARACTERISTIC(&eds_tx_uuid.uuid,
-			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE),
-	/* Must be unlocked for both read and write. */
-	BT_GATT_DESCRIPTOR(&eds_tx_uuid.uuid,
-			   BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-			   read_tx_power, write_tx_power, NULL),
-	/* Advertised TX Power */
+			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
+			       BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
+			       read_tx_power, write_tx_power, NULL),
+	/* Advertised TX Power: Must be unlocked for both read and write. */
 	BT_GATT_CHARACTERISTIC(&eds_adv_tx_uuid.uuid,
-			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE),
-	/* Must be unlocked for both read and write. */
-	BT_GATT_DESCRIPTOR(&eds_adv_tx_uuid.uuid,
-			   BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-			   read_adv_tx_power, write_adv_tx_power, NULL),
-	/* Lock State */
-	BT_GATT_CHARACTERISTIC(&eds_lock_uuid.uuid,
-			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE),
-	/* Readable in locked or unlocked state.
+			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
+			       BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
+			       read_adv_tx_power, write_adv_tx_power, NULL),
+	/* Lock State:
+	 * Readable in locked or unlocked state.
 	 * Writeable only in unlocked state.
 	 */
-	BT_GATT_DESCRIPTOR(&eds_lock_uuid.uuid,
-			   BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-			   read_lock, write_lock, NULL),
-	/* Unlock */
-	BT_GATT_CHARACTERISTIC(&eds_unlock_uuid.uuid,
-			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE),
-	/* Readable only in locked state.
+	BT_GATT_CHARACTERISTIC(&eds_lock_uuid.uuid,
+			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
+			       BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
+			       read_lock, write_lock, NULL),
+	/* Unlock:
+	 * Readable only in locked state.
 	 * Writeable only in locked state.
 	 */
-	BT_GATT_DESCRIPTOR(&eds_unlock_uuid.uuid,
-			   BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-			   read_unlock, write_unlock, NULL),
-	/* Public ECDH Key */
-	BT_GATT_CHARACTERISTIC(&eds_ecdh_uuid.uuid, BT_GATT_CHRC_READ),
-	/* Readable only in unlocked state. Never writable. */
-	BT_GATT_DESCRIPTOR(&eds_ecdh_uuid.uuid, BT_GATT_PERM_READ,
-			   read_ecdh, NULL, &eds_ecdh),
-	/* EID Identity Key */
-	BT_GATT_CHARACTERISTIC(&eds_eid_uuid.uuid, BT_GATT_CHRC_READ),
-	/* Readable only in unlocked state. Never writable. */
-	BT_GATT_DESCRIPTOR(&eds_eid_uuid.uuid, BT_GATT_PERM_READ,
-			   read_eid, NULL, eds_eid),
-	/* ADV Slot Data */
+	BT_GATT_CHARACTERISTIC(&eds_unlock_uuid.uuid,
+			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
+			       BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
+			       read_unlock, write_unlock, NULL),
+	/* Public ECDH Key: Readable only in unlocked state. Never writable. */
+	BT_GATT_CHARACTERISTIC(&eds_ecdh_uuid.uuid, BT_GATT_CHRC_READ,
+			       BT_GATT_PERM_READ, read_ecdh, NULL, &eds_ecdh),
+	/* EID Identity Key:Readable only in unlocked state. Never writable. */
+	BT_GATT_CHARACTERISTIC(&eds_eid_uuid.uuid, BT_GATT_CHRC_READ,
+			       BT_GATT_PERM_READ, read_eid, NULL, eds_eid),
+	/* ADV Slot Data: Must be unlocked for both read and write. */
 	BT_GATT_CHARACTERISTIC(&eds_data_uuid.uuid,
-			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE),
-	/* Must be unlocked for both read and write. */
-	BT_GATT_DESCRIPTOR(&eds_eid_uuid.uuid,
-			   BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-			   read_adv_data, write_adv_data, NULL),
-	/* ADV Factory Reset */
-	BT_GATT_CHARACTERISTIC(&eds_reset_uuid.uuid,  BT_GATT_CHRC_WRITE),
-	/* Must be unlocked write. */
-	BT_GATT_DESCRIPTOR(&eds_reset_uuid.uuid,
-			   BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-			   NULL, write_reset, NULL),
-	/* ADV Remain Connectable */
+			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
+			       BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
+			       read_adv_data, write_adv_data, NULL),
+	/* ADV Factory Reset: Must be unlocked for write. */
+	BT_GATT_CHARACTERISTIC(&eds_reset_uuid.uuid,  BT_GATT_CHRC_WRITE,
+			       BT_GATT_PERM_WRITE, NULL, write_reset, NULL),
+	/* ADV Remain Connectable: Must be unlocked for write. */
 	BT_GATT_CHARACTERISTIC(&eds_connectable_uuid.uuid,
-			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE),
-	/* Must be unlocked for write. */
-	BT_GATT_DESCRIPTOR(&eds_connectable_uuid.uuid,
-			   BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-			   read_connectable, write_connectable, NULL),
+			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
+			       BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
+			       read_connectable, write_connectable, NULL),
 };
+
+static struct bt_gatt_service eds_svc = BT_GATT_SERVICE(eds_attrs);
 
 static void bt_ready(int err)
 {
@@ -660,11 +628,10 @@ static void bt_ready(int err)
 
 	printk("Bluetooth initialized\n");
 
-	bt_gatt_register(eds_attrs, ARRAY_SIZE(eds_attrs));
+	bt_gatt_service_register(&eds_svc);
 
 	/* Start advertising */
-	err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad),
-			      sd, ARRAY_SIZE(sd));
+	err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
 	if (err) {
 		printk("Advertising failed to start (err %d)\n", err);
 		return;
@@ -683,7 +650,7 @@ static void idle_timeout(struct k_work *work)
 	}
 }
 
-static void connected(struct bt_conn *conn, uint8_t err)
+static void connected(struct bt_conn *conn, u8_t err)
 {
 	if (err) {
 		printk("Connection failed (err %u)\n", err);
@@ -693,7 +660,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	}
 }
 
-static void disconnected(struct bt_conn *conn, uint8_t reason)
+static void disconnected(struct bt_conn *conn, u8_t reason)
 {
 	struct eds_slot *slot = &eds_slots[eds_active_slot];
 

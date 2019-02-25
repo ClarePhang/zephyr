@@ -6,10 +6,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __CLOCK_CONTROL_H__
-#define __CLOCK_CONTROL_H__
+#ifndef ZEPHYR_INCLUDE_CLOCK_CONTROL_H_
+#define ZEPHYR_INCLUDE_CLOCK_CONTROL_H_
 
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <stddef.h>
 #include <device.h>
 #include <misc/__assert.h>
@@ -34,7 +34,7 @@ typedef int (*clock_control)(struct device *dev, clock_control_subsys_t sys);
 
 typedef int (*clock_control_get)(struct device *dev,
 				 clock_control_subsys_t sys,
-				 uint32_t *rate);
+				 u32_t *rate);
 
 struct clock_control_driver_api {
 	clock_control		on;
@@ -79,11 +79,11 @@ static inline int clock_control_off(struct device *dev,
  */
 static inline int clock_control_get_rate(struct device *dev,
 					 clock_control_subsys_t sys,
-					 uint32_t *rate)
+					 u32_t *rate)
 {
 	const struct clock_control_driver_api *api = dev->driver_api;
 
-	__ASSERT(api->get_rate, "%s not implemented for device %s",
+	__ASSERT(api->get_rate != NULL, "%s not implemented for device %s",
 		__func__, dev->config->name);
 
 	return api->get_rate(dev, sys, rate);
@@ -93,4 +93,4 @@ static inline int clock_control_get_rate(struct device *dev,
 }
 #endif
 
-#endif /* __CLOCK_CONTROL_H__ */
+#endif /* ZEPHYR_INCLUDE_CLOCK_CONTROL_H_ */

@@ -6,10 +6,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __INCioapich
-#define __INCioapich
-
-#include <drivers/loapic.h>
+#ifndef ZEPHYR_INCLUDE_DRIVERS_IOAPIC_H_
+#define ZEPHYR_INCLUDE_DRIVERS_IOAPIC_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,15 +35,14 @@ extern "C" {
 #define IOAPIC_EXTINT 0x00000700
 
 #ifndef _ASMLANGUAGE
-#include <device.h>
 void _ioapic_irq_enable(unsigned int irq);
 void _ioapic_irq_disable(unsigned int irq);
 void _ioapic_int_vec_set(unsigned int irq, unsigned int vector);
-void _ioapic_irq_set(unsigned int irq, unsigned int vector, uint32_t flags);
+void _ioapic_irq_set(unsigned int irq, unsigned int vector, u32_t flags);
 #endif /* _ASMLANGUAGE */
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __INCioapich */
+#endif /* ZEPHYR_INCLUDE_DRIVERS_IOAPIC_H_ */

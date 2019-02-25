@@ -7,7 +7,7 @@
 #include <errno.h>
 
 #include <gpio.h>
-#include <board.h>
+#include <soc.h>
 #include <misc/util.h>
 
 #include "qm_ss_gpio.h"
@@ -17,17 +17,17 @@
 
 struct ss_gpio_qmsi_config {
 	qm_ss_gpio_t gpio;
-	uint8_t num_pins;
+	u8_t num_pins;
 };
 
 struct ss_gpio_qmsi_runtime {
 	sys_slist_t callbacks;
-	uint32_t pin_callbacks;
+	u32_t pin_callbacks;
 #ifdef CONFIG_GPIO_QMSI_API_REENTRANCY
 	struct k_sem sem;
 #endif /* CONFIG_GPIO_QMSI_API_REENTRANCY */
 #ifdef CONFIG_DEVICE_POWER_MANAGEMENT
-	uint32_t device_power_state;
+	u32_t device_power_state;
 	qm_ss_gpio_context_t gpio_ctx;
 #endif
 };
@@ -40,14 +40,14 @@ struct ss_gpio_qmsi_runtime {
 
 #ifdef CONFIG_DEVICE_POWER_MANAGEMENT
 static void ss_gpio_qmsi_set_power_state(struct device *dev,
-					 uint32_t power_state)
+					 u32_t power_state)
 {
 	struct ss_gpio_qmsi_runtime *context = dev->driver_data;
 
 	context->device_power_state = power_state;
 }
 
-static uint32_t ss_gpio_qmsi_get_power_state(struct device *dev)
+static u32_t ss_gpio_qmsi_get_power_state(struct device *dev)
 {
 	struct ss_gpio_qmsi_runtime *context = dev->driver_data;
 
@@ -84,17 +84,17 @@ static int ss_gpio_resume_device_from_suspend(struct device *dev)
 * Implements the driver control management functionality
 * the *context may include IN data or/and OUT data
 */
-static int ss_gpio_qmsi_device_ctrl(struct device *port, uint32_t ctrl_command,
+static int ss_gpio_qmsi_device_ctrl(struct device *port, u32_t ctrl_command,
 				    void *context)
 {
 	if (ctrl_command == DEVICE_PM_SET_POWER_STATE) {
-		if (*((uint32_t *)context) == DEVICE_PM_SUSPEND_STATE) {
+		if (*((u32_t *)context) == DEVICE_PM_SUSPEND_STATE) {
 			return ss_gpio_suspend_device(port);
-		} else if (*((uint32_t *)context) == DEVICE_PM_ACTIVE_STATE) {
+		} else if (*((u32_t *)context) == DEVICE_PM_ACTIVE_STATE) {
 			return ss_gpio_resume_device_from_suspend(port);
 		}
 	} else if (ctrl_command == DEVICE_PM_GET_POWER_STATE) {
-		*((uint32_t *)context) = ss_gpio_qmsi_get_power_state(port);
+		*((u32_t *)context) = ss_gpio_qmsi_get_power_state(port);
 	}
 	return 0;
 }
@@ -112,7 +112,7 @@ static const struct ss_gpio_qmsi_config ss_gpio_0_config = {
 
 static struct ss_gpio_qmsi_runtime ss_gpio_0_runtime;
 
-DEVICE_DEFINE(ss_gpio_0, CONFIG_GPIO_QMSI_SS_0_NAME, &ss_gpio_qmsi_init,
+DEVICE_DEFINE(ss_gpio_0, DT_GPIO_QMSI_SS_0_NAME, &ss_gpio_qmsi_init,
 	    ss_gpio_qmsi_device_ctrl, &ss_gpio_0_runtime, &ss_gpio_0_config,
 	    POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE, NULL);
 
@@ -126,7 +126,7 @@ static const struct ss_gpio_qmsi_config ss_gpio_1_config = {
 
 static struct ss_gpio_qmsi_runtime gpio_1_runtime;
 
-DEVICE_DEFINE(ss_gpio_1, CONFIG_GPIO_QMSI_SS_1_NAME, &ss_gpio_qmsi_init,
+DEVICE_DEFINE(ss_gpio_1, DT_GPIO_QMSI_SS_1_NAME, &ss_gpio_qmsi_init,
 	    ss_gpio_qmsi_device_ctrl, &gpio_1_runtime, &ss_gpio_1_config,
 	    POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE, NULL);
 
@@ -136,14 +136,14 @@ static void ss_gpio_qmsi_callback(void *data, uint32_t status)
 {
 	struct device *port = data;
 	struct ss_gpio_qmsi_runtime *context = port->driver_data;
-	const uint32_t enabled_mask = context->pin_callbacks & status;
+	const u32_t enabled_mask = context->pin_callbacks & status;
 
 	if (enabled_mask) {
 		_gpio_fire_callbacks(&context->callbacks, port, enabled_mask);
 	}
 }
 
-static void ss_qmsi_write_bit(uint32_t *target, uint8_t bit, uint8_t value)
+static void ss_qmsi_write_bit(u32_t *target, u8_t bit, u8_t value)
 {
 	if (value) {
 		sys_set_bit((uintptr_t) target, bit);
@@ -152,13 +152,13 @@ static void ss_qmsi_write_bit(uint32_t *target, uint8_t bit, uint8_t value)
 	}
 }
 
-static inline void ss_qmsi_pin_config(struct device *port, uint32_t pin,
+static inline void ss_qmsi_pin_config(struct device *port, u8_t pin,
 				      int flags)
 {
 	const struct ss_gpio_qmsi_config *gpio_config =
 		port->config->config_info;
 	qm_ss_gpio_t gpio = gpio_config->gpio;
-	uint32_t controller;
+	u32_t controller;
 
 	qm_ss_gpio_port_config_t cfg = { 0 };
 
@@ -186,17 +186,17 @@ static inline void ss_qmsi_pin_config(struct device *port, uint32_t pin,
 	cfg.callback = ss_gpio_qmsi_callback;
 	cfg.callback_data = port;
 
-	ss_qmsi_write_bit(&cfg.direction, pin, (flags & GPIO_DIR_MASK));
+	ss_qmsi_write_bit((u32_t *)&cfg.direction, pin, (flags & GPIO_DIR_MASK));
 
 	if (flags & GPIO_INT) {
-		ss_qmsi_write_bit(&cfg.int_type, pin, (flags & GPIO_INT_EDGE));
-		ss_qmsi_write_bit(&cfg.int_polarity, pin,
+		ss_qmsi_write_bit((u32_t *)&cfg.int_type, pin, (flags & GPIO_INT_EDGE));
+		ss_qmsi_write_bit((u32_t *)&cfg.int_polarity, pin,
 			       (flags & GPIO_INT_ACTIVE_HIGH));
-		ss_qmsi_write_bit(&cfg.int_debounce, pin,
+		ss_qmsi_write_bit((u32_t *)&cfg.int_debounce, pin,
 			       (flags & GPIO_INT_DEBOUNCE));
-		ss_qmsi_write_bit(&cfg.int_en, pin, 1);
+		ss_qmsi_write_bit((u32_t *)&cfg.int_en, pin, 1);
 	} else {
-		ss_qmsi_write_bit(&cfg.int_en, pin, 0);
+		ss_qmsi_write_bit((u32_t *)&cfg.int_en, pin, 0);
 	}
 
 	if (IS_ENABLED(CONFIG_GPIO_QMSI_API_REENTRANCY)) {
@@ -214,7 +214,7 @@ static inline void ss_qmsi_port_config(struct device *port, int flags)
 {
 	const struct ss_gpio_qmsi_config *gpio_config =
 		port->config->config_info;
-	uint8_t num_pins = gpio_config->num_pins;
+	u8_t num_pins = gpio_config->num_pins;
 	int i;
 
 	for (i = 0; i < num_pins; i++) {
@@ -223,7 +223,7 @@ static inline void ss_qmsi_port_config(struct device *port, int flags)
 }
 
 static inline int ss_gpio_qmsi_config(struct device *port, int access_op,
-				      uint32_t pin, int flags)
+				      u32_t pin, int flags)
 {
 	/* check for an invalid pin configuration */
 	if ((flags & GPIO_INT) && (flags & GPIO_DIR_OUT)) {
@@ -239,7 +239,7 @@ static inline int ss_gpio_qmsi_config(struct device *port, int access_op,
 }
 
 static inline int ss_gpio_qmsi_write(struct device *port, int access_op,
-				     uint32_t pin, uint32_t value)
+				     u32_t pin, u32_t value)
 {
 	const struct ss_gpio_qmsi_config *gpio_config =
 		port->config->config_info;
@@ -267,7 +267,7 @@ static inline int ss_gpio_qmsi_write(struct device *port, int access_op,
 }
 
 static inline int ss_gpio_qmsi_read(struct device *port, int access_op,
-				    uint32_t pin, uint32_t *value)
+				    u32_t pin, u32_t *value)
 {
 	const struct ss_gpio_qmsi_config *gpio_config =
 		port->config->config_info;
@@ -278,7 +278,7 @@ static inline int ss_gpio_qmsi_read(struct device *port, int access_op,
 		qm_ss_gpio_read_pin(gpio, pin, &state);
 		*value = state;
 	} else {
-		qm_ss_gpio_read_port(gpio, value);
+		qm_ss_gpio_read_port(gpio, (uint32_t *)value);
 	}
 
 	return 0;
@@ -290,13 +290,11 @@ static inline int ss_gpio_qmsi_manage_callback(struct device *port,
 {
 	struct ss_gpio_qmsi_runtime *context = port->driver_data;
 
-	_gpio_manage_callback(&context->callbacks, callback, set);
-
-	return 0;
+	return _gpio_manage_callback(&context->callbacks, callback, set);
 }
 
 static inline int ss_gpio_qmsi_enable_callback(struct device *port,
-					       int access_op, uint32_t pin)
+					       int access_op, u32_t pin)
 {
 	struct ss_gpio_qmsi_runtime *context = port->driver_data;
 
@@ -318,7 +316,7 @@ static inline int ss_gpio_qmsi_enable_callback(struct device *port,
 }
 
 static inline int ss_gpio_qmsi_disable_callback(struct device *port,
-						int access_op, uint32_t pin)
+						int access_op, u32_t pin)
 {
 	struct ss_gpio_qmsi_runtime *context = port->driver_data;
 
@@ -329,7 +327,7 @@ static inline int ss_gpio_qmsi_disable_callback(struct device *port,
 	if (access_op == GPIO_ACCESS_BY_PIN) {
 		context->pin_callbacks &= ~BIT(pin);
 	} else {
-		context->pin_callbacks = 0;
+		context->pin_callbacks = 0U;
 	}
 
 	if (IS_ENABLED(CONFIG_GPIO_QMSI_API_REENTRANCY)) {
@@ -365,39 +363,38 @@ static int ss_gpio_qmsi_init(struct device *port)
 {
 	const struct ss_gpio_qmsi_config *gpio_config =
 		port->config->config_info;
-	uint32_t *scss_intmask = NULL;
+	u32_t *scss_intmask = NULL;
 
 	if (IS_ENABLED(CONFIG_GPIO_QMSI_API_REENTRANCY)) {
-		k_sem_init(RP_GET(port), 0, UINT_MAX);
-		k_sem_give(RP_GET(port));
+		k_sem_init(RP_GET(port), 1, UINT_MAX);
 	}
 
 	switch (gpio_config->gpio) {
 #ifdef CONFIG_GPIO_QMSI_SS_0
 	case QM_SS_GPIO_0:
-		IRQ_CONNECT(IRQ_GPIO0_INTR,
-			    CONFIG_GPIO_QMSI_SS_0_IRQ_PRI, ss_gpio_isr,
+		IRQ_CONNECT(DT_GPIO_QMSI_SS_0_IRQ,
+			    DT_GPIO_QMSI_SS_0_IRQ_PRI, ss_gpio_isr,
 			    DEVICE_GET(ss_gpio_0), 0);
 		irq_enable(IRQ_GPIO0_INTR);
 
 		ss_clk_gpio_enable(QM_SS_GPIO_0);
 
 		scss_intmask =
-			(uint32_t *)&QM_INTERRUPT_ROUTER->ss_gpio_0_int_mask;
+			(u32_t *)&QM_INTERRUPT_ROUTER->ss_gpio_0_int_mask;
 		*scss_intmask &= ~BIT(8);
 		break;
 #endif /* CONFIG_GPIO_QMSI_SS_0 */
 #ifdef CONFIG_GPIO_QMSI_SS_1
 	case QM_SS_GPIO_1:
-		IRQ_CONNECT(IRQ_GPIO1_INTR,
-			    CONFIG_GPIO_QMSI_SS_1_IRQ_PRI, ss_gpio_isr,
+		IRQ_CONNECT(DT_GPIO_QMSI_SS_1_IRQ,
+			    DT_GPIO_QMSI_SS_1_IRQ_PRI, ss_gpio_isr,
 			    DEVICE_GET(ss_gpio_1), 0);
 		irq_enable(IRQ_GPIO1_INTR);
 
 		ss_clk_gpio_enable(QM_SS_GPIO_1);
 
 		scss_intmask =
-			(uint32_t *)&QM_INTERRUPT_ROUTER->ss_gpio_1_int_mask;
+			(u32_t *)&QM_INTERRUPT_ROUTER->ss_gpio_1_int_mask;
 		*scss_intmask &= ~BIT(8);
 		break;
 #endif /* CONFIG_GPIO_QMSI_SS_1 */

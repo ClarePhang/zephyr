@@ -12,6 +12,8 @@
  */
 
 #include <arch/x86/asm.h>
+#include <kernel_arch_data.h>
+#include <arch/cpu.h>
 
 	/* exports (private APIs) */
 
@@ -22,7 +24,7 @@
 
 	GDATA(_idt_base_address)
 	GDATA(_interrupt_stack)
-	GDATA(_Idt)
+	GDATA(z_x86_idt)
 #ifndef CONFIG_GDT_DYNAMIC
 	GDATA(_gdt)
 #endif
@@ -33,13 +35,104 @@
 #endif
 
 #if defined(CONFIG_BOOT_TIME_MEASUREMENT)
-	GDATA(__start_tsc)
+	GDATA(__start_time_stamp)
 #endif
 
-#ifdef CONFIG_SYS_POWER_DEEP_SLEEP
-	GTEXT(_sys_soc_resume_from_deep_sleep)
+#ifdef CONFIG_SYS_POWER_DEEP_SLEEP_STATES
+	GTEXT(sys_resume_from_deep_sleep)
 #endif
 
+#ifdef CONFIG_REALMODE
+
+#define RM_CODE_SEG             0x8
+#define RM_DATA_SEG             0x18
+#define MSR_MTRR_DEF_TYPE       0x000002ff
+#define MTRR_ENABLE             0x00000800
+#define X86_CR0_PE              0x00000001
+#define X86_CR0_WP              0x00010000
+#define X86_CR4_PSE             0x00000010
+
+	.code16
+	.section ".boot", "ax"
+
+	.globl __jh_entry
+__jh_entry:
+	lgdtl %cs:gdt_ptr
+
+	mov %cr0,%eax
+	or $X86_CR0_PE,%al
+	mov %eax,%cr0
+
+	ljmpl $RM_CODE_SEG,$start32
+
+	.code32
+start32:
+	/*
+	 * Minimal bootstrap into 32-bit mode, just to jump to
+	 * __start
+	 */
+
+	/* 4Mb pages */
+	mov %cr4,%eax
+	or $X86_CR4_PSE,%eax
+	mov %eax,%cr4
+
+	/* Enable write protect and protected mode */
+	mov $(X86_CR0_WP | X86_CR0_PE),%eax
+	mov %eax,%cr0
+
+	movl $MSR_MTRR_DEF_TYPE,%ecx
+	rdmsr
+	or $MTRR_ENABLE,%eax
+	wrmsr
+
+	mov $RM_DATA_SEG,%eax
+	mov %eax,%ds
+	mov %eax,%es
+	mov %eax,%ss
+
+	ljmp $RM_CODE_SEG, $__start
+
+	.global loader_gdt
+loader_gdt:
+	.quad 0
+
+	/* Boot entry 1 (selector=0x0): 32-bit code descriptor: DPL0 */
+
+	.word   0xffff		/* limit: xffff */
+	.word   0x0000		/* base : xxxx0000 */
+	.byte   0x00		/* base : xx00xxxx */
+	.byte   0x9b		/* Accessed, Code e/r, Present, DPL0 */
+	.byte   0xcf		/* limit: fxxxx, Page Gra, 32bit */
+	.byte   0x00		/* base : 00xxxxxx */
+
+	/* Boot entry 2 (selector=0x0): 16-bit code descriptor: DPL0 */
+
+	.word   0xffff		/* limit: xffff */
+	.word   0x0000		/* base : xxxx0000 */
+	.byte   0x00		/* base : xx00xxxx */
+	.byte   0x9b		/* Accessed, Code e/r, Present, DPL0 */
+	.byte   0x8f		/* limit: fxxxx, Byte Gra, 16bit */
+	.byte   0x00		/* base : 00xxxxxx */
+
+	/* Boot entry 3 (selector=0x0): Data descriptor: DPL0 */
+
+	.word   0xffff		/* limit: xffff */
+	.word   0x0000		/* base : xxxx0000 */
+	.byte   0x00		/* base : xx00xxxx */
+	.byte   0x93		/* Accessed, Data r/w, Present, DPL0 */
+	.byte   0xcf		/* limit: fxxxx, Page Gra, 32bit */
+	.byte   0x00		/* base : 00xxxxxx */
+gdt_ptr:
+	.short gdt_ptr - loader_gdt - 1
+	.long loader_gdt
+
+	.pushsection ".rodata"
+
+	.align(4096)
+
+	.popsection
+#endif /* CONFIG_REALMODE */
 
 	/* processor is executing in 32-bit protected mode */
 
@@ -80,20 +173,21 @@ SECTION_FUNC(TEXT_START, __start)
 #if CONFIG_SET_GDT
 	lgdt	_gdt_rom		/* load 32-bit operand size GDT */
 #endif
-	lidt	_Idt		/* load 32-bit operand size IDT */
+
 
 
 #ifdef CONFIG_SET_GDT
 	/* If we set our own GDT, update the segment registers as well.
 	 */
-	movw	$0x10, %ax	/* data segment selector (entry = 3) */
+	movw	$DATA_SEG, %ax	/* data segment selector (entry = 3) */
 	movw	%ax, %ds	/* set DS */
 	movw	%ax, %es	/* set ES */
-	movw	%ax, %fs	/* set FS */
-	movw	%ax, %gs	/* set GS */
 	movw	%ax, %ss	/* set SS */
+	xorw	%ax, %ax	/* AX = 0 */
+	movw	%ax, %fs	/* Zero FS */
+	movw	%ax, %gs	/* Zero GS */
 
-	ljmp	$0x08, $__csSet	/* set CS = 0x08 */
+	ljmp	$CODE_SEG, $__csSet	/* set CS = 0x08 */
 
 __csSet:
 #endif /* CONFIG_SET_GDT */
@@ -103,8 +197,8 @@ __csSet:
 	/*
 	 * Store rdtsc result from temporary regiter ESI & EDI into memory.
 	 */
-        mov  %esi, __start_tsc    	/* low  value */
-        mov  %edi, __start_tsc+4    	/* high value */
+        mov  %esi, __start_time_stamp  	/* low  value */
+        mov  %edi, __start_time_stamp+4    	/* high value */
 #endif
 
 #if !defined(CONFIG_FLOAT)
@@ -157,34 +251,43 @@ __csSet:
 	 * dual-purposing of this area of memory is safe since
 	 * interrupts are disabled until the first context switch.
 	 *
-	 * nano_init.c enforces that the _interrupt_stack pointer and
+	 * kernel/init.c enforces that the _interrupt_stack pointer and
 	 * the ISR stack size are some multiple of STACK_ALIGN, which
 	 * is at least 4.
 	 *
-	 * This is also used to call the _sys_soc_resume_from_deep_sleep()
+	 * This is also used to call the sys_resume_from_deep_sleep()
 	 * routine to avoid memory corruption if the system is resuming from
-	 * deep sleep. It is important that _sys_soc_resume_from_deep_sleep()
+	 * deep sleep. It is important that sys_resume_from_deep_sleep()
 	 * restores the stack pointer to what it was at deep sleep before
          * enabling interrupts.  This is necessary to avoid
 	 * interfering with interrupt handler use of this stack.
-	 * If it is a cold boot then _sys_soc_resume_from_deep_sleep() should
+	 * If it is a cold boot then sys_resume_from_deep_sleep() should
 	 * not do anything and must return immediately.
 	 */
 #ifdef CONFIG_INIT_STACKS
 	movl $0xAAAAAAAA, %eax
 	leal _interrupt_stack, %edi
+#ifdef CONFIG_X86_STACK_PROTECTION
+	addl $4096, %edi
+#endif
 	stack_size_dwords = (CONFIG_ISR_STACK_SIZE / 4)
 	movl $stack_size_dwords, %ecx
 	rep  stosl
 #endif
 
 	movl	$_interrupt_stack, %esp
+#ifdef CONFIG_X86_STACK_PROTECTION
+	/* In this configuration, all stacks, including IRQ stack, are declared
+	 * with a 4K non-present guard page preceding the stack buffer
+	 */
+	addl	$(CONFIG_ISR_STACK_SIZE + 4096), %esp
+#else
 	addl	$CONFIG_ISR_STACK_SIZE, %esp
-
-#if defined(CONFIG_SYS_POWER_DEEP_SLEEP) && \
+#endif
+#if defined(CONFIG_SYS_POWER_DEEP_SLEEP_STATES) && \
              !defined(CONFIG_BOOTLOADER_CONTEXT_RESTORE)
 	/*
-	 * Invoke _sys_soc_resume_from_deep_sleep() hook to handle resume from
+	 * Invoke sys_resume_from_deep_sleep() hook to handle resume from
 	 * deep sleep. It should first check whether system is recovering from
 	 * deep sleep state. If it is, then this function should restore
 	 * states and resume at the point system went to deep sleep.
@@ -195,7 +298,7 @@ __csSet:
 	 * return and execution falls through to cold boot path.
 	 */
 
-	call _sys_soc_resume_from_deep_sleep
+	call sys_resume_from_deep_sleep
 
 #endif
 
@@ -209,27 +312,15 @@ __csSet:
 	movl	$__data_rom_start, %esi /* DATA in ROM (src) */
 	movl	$__data_num_words, %ecx /* Size of DATA in quad bytes */
 
-  #ifdef CONFIG_SSE
-	/* copy 16 bytes at a time using XMM until < 16 bytes remain */
+	call	_x86_data_copy
 
-	movl	%ecx ,%edx		/* save number of quad bytes */
-	shrl	$2, %ecx		/* How many 16 bytes? */
-	je	dataWords
+#ifdef CONFIG_USERSPACE
+	movl	$_app_smem_start, %edi /* DATA in RAM (dest) */
+	movl	$_app_smem_rom_start, %esi /* DATA in ROM (src) */
+	movl	$_app_smem_num_words, %ecx /* Size of DATA in quad bytes */
 
-dataDQ:
-	movdqu	(%esi), %xmm0
-	movdqu	%xmm0, (%edi)
-	addl	$16, %esi
-	addl	$16, %edi
-	loop	dataDQ
-
-dataWords:
-	movl	%edx, %ecx	/* restore # quad bytes */
-	andl	$0x3, %ecx	/* only need to copy at most 3 quad bytes */
-  #endif /* CONFIG_SSE */
-
-	rep
-	movsl				/* copy data 4 bytes at a time */
+	call	_x86_data_copy
+#endif /* CONFIG_USERSPACE */
 
 #endif /* CONFIG_XIP */
 
@@ -239,14 +330,62 @@ dataWords:
 	 * It's assumed that BSS size will be a multiple of a long (4 bytes),
 	 * and aligned on a double word (32-bit) boundary
 	 */
-
-#ifdef CONFIG_SSE
-
-	/* use XMM register to clear 16 bytes at a time */
-
-	pxor	%xmm0, %xmm0		/* zero out xmm0 register */
 	movl	$__bss_start, %edi	/* load BSS start address */
 	movl	$__bss_num_words, %ecx	/* number of quad bytes in .bss */
+	call	_x86_bss_zero
+
+#ifdef CONFIG_COVERAGE_GCOV
+	movl	$__gcov_bss_start, %edi	/* load gcov BSS start address */
+	movl	$__gcov_bss_num_words, %ecx	/* number of quad bytes */
+	call	_x86_bss_zero
+#endif /* CONFIG_COVERAGE_GCOV */
+
+#ifdef CONFIG_GDT_DYNAMIC
+	/* activate RAM-based Global Descriptor Table (GDT) */
+	lgdt	%ds:_gdt
+#endif
+
+#ifdef CONFIG_X86_MMU
+
+	/* load the page directory address into the registers*/
+	movl $z_x86_kernel_pdpt, %eax
+	movl %eax, %cr3
+
+	/* Enable PAE */
+	movl %cr4, %eax
+	orl $CR4_PAE_ENABLE, %eax
+	movl %eax, %cr4
+
+	/* IA32_EFER NXE bit set */
+	movl $0xC0000080, %ecx
+	rdmsr
+	orl $0x800, %eax
+	wrmsr
+
+	/* Enable paging (CR0.PG, bit 31) / write protect (CR0.WP, bit 16) */
+	movl %cr0, %eax
+	orl $CR0_PG_WP_ENABLE, %eax
+	movl %eax, %cr0
+
+#endif /* CONFIG_X86_MMU */
+
+#if defined(CONFIG_X86_ENABLE_TSS)
+	mov $MAIN_TSS, %ax
+	ltr %ax
+#endif
+	lidt	z_x86_idt		/* load 32-bit operand size IDT */
+
+	/* Jump to C portion of kernel initialization and never return */
+
+	jmp	_Cstart
+
+
+_x86_bss_zero:
+	/* ECX = size, EDI = starting address */
+#ifdef CONFIG_SSE
+	/* use XMM register to clear 16 bytes at a time */
+	pxor	%xmm0, %xmm0		/* zero out xmm0 register */
+
 	movl	%ecx, %edx		/* make a copy of # quad bytes */
 	shrl	$2, %ecx		/* How many multiples of 16 byte ? */
 	je	bssWords
@@ -270,22 +409,39 @@ bssWords:
 	/* clear out BSS double words (32-bits at a time) */
 
 	xorl	%eax, %eax		/* fill memory with 0 */
-	movl	$__bss_start, %edi	/* load BSS start address */
-	movl	$__bss_num_words, %ecx	/* number of quad bytes */
 	cld
 	rep
 	stosl				/* zero memory per 4 bytes */
 
 #endif /* CONFIG_SSE */
+	ret
 
-#ifdef CONFIG_GDT_DYNAMIC
-	/* activate RAM-based Global Descriptor Table (GDT) */
-	lgdt	%ds:_gdt
-#endif
+#ifdef CONFIG_XIP
+_x86_data_copy:
+	/* EDI = dest, ESI = source, ECX = size in 32-bit chunks */
+  #ifdef CONFIG_SSE
+	/* copy 16 bytes at a time using XMM until < 16 bytes remain */
 
-	/* Jump to C portion of kernel initialization and never return */
+	movl	%ecx ,%edx		/* save number of quad bytes */
+	shrl	$2, %ecx		/* How many 16 bytes? */
+	je	dataWords
 
-	jmp	_Cstart
+dataDQ:
+	movdqu	(%esi), %xmm0
+	movdqu	%xmm0, (%edi)
+	addl	$16, %esi
+	addl	$16, %edi
+	loop	dataDQ
+
+dataWords:
+	movl	%edx, %ecx	/* restore # quad bytes */
+	andl	$0x3, %ecx	/* only need to copy at most 3 quad bytes */
+  #endif /* CONFIG_SSE */
+
+	rep
+	movsl				/* copy data 4 bytes at a time */
+	ret
+#endif /* CONFIG_XIP */
 
 #if defined(CONFIG_SSE)
 
@@ -298,7 +454,7 @@ _sse_mxcsr_default_value:
 
 	 /* Interrupt Descriptor Table (IDT) definition */
 
-_Idt:
+z_x86_idt:
 	.word	(CONFIG_IDT_NUM_VECTORS * 8) - 1 /* limit: size of IDT-1 */
 
 	/*

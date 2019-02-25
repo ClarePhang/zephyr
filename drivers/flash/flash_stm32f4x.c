@@ -11,259 +11,202 @@
 #include <init.h>
 #include <soc.h>
 
-#include <flash_registers.h>
-#include <flash_map.h>
+#include "flash_stm32.h"
 
-struct flash_priv {
-	struct stm32f4x_flash *regs;
-	struct k_sem sem;
-};
+#define STM32F4X_SECTOR_MASK		((u32_t) 0xFFFFFF07)
 
-static bool valid_range(off_t offset, uint32_t len)
+bool flash_stm32_valid_range(struct device *dev, off_t offset, u32_t len,
+			     bool write)
 {
-	return offset >= 0 && (offset + len - 1 <= STM32F4X_FLASH_END);
+	ARG_UNUSED(write);
+
+	return flash_stm32_range_exists(dev, offset, len);
 }
 
-static int check_status(struct stm32f4x_flash *regs)
+static int write_byte(struct device *dev, off_t offset, u8_t val)
 {
-	uint32_t const error =
-		FLASH_FLAG_WRPERR |
-		FLASH_FLAG_PGAERR |
-		FLASH_FLAG_RDERR  |
-		FLASH_FLAG_PGPERR |
-		FLASH_FLAG_PGSERR |
-		FLASH_FLAG_OPERR;
-
-	if (regs->status & error) {
-		return -EIO;
-	}
-
-	return 0;
-}
-
-static int wait_flash_idle(struct stm32f4x_flash *regs)
-{
-	uint32_t timeout = STM32F4X_FLASH_TIMEOUT;
-	int rc;
-
-	rc = check_status(regs);
-	if (rc < 0) {
-		return -EIO;
-	}
-
-	while ((regs->status & FLASH_FLAG_BSY) && timeout) {
-		timeout--;
-	}
-
-	if (!timeout) {
-		return -EIO;
-	}
-
-	return 0;
-}
-
-static int write_byte(off_t offset, uint8_t val, struct stm32f4x_flash *regs)
-{
-	uint32_t tmp;
+	struct stm32f4x_flash *regs = FLASH_STM32_REGS(dev);
+	u32_t tmp;
 	int rc;
 
 	/* if the control register is locked, do not fail silently */
-	if (regs->ctrl & FLASH_CR_LOCK) {
+	if (regs->cr & FLASH_CR_LOCK) {
 		return -EIO;
 	}
 
-	rc = wait_flash_idle(regs);
+	rc = flash_stm32_wait_flash_idle(dev);
 	if (rc < 0) {
 		return rc;
 	}
 
-	regs->ctrl &= CR_PSIZE_MASK;
-	regs->ctrl |= FLASH_PSIZE_BYTE;
-	regs->ctrl |= FLASH_CR_PG;
+	regs->cr &= ~CR_PSIZE_MASK;
+	regs->cr |= FLASH_PSIZE_BYTE;
+	regs->cr |= FLASH_CR_PG;
 
 	/* flush the register write */
-	tmp = regs->ctrl;
+	tmp = regs->cr;
 
-	*((uint8_t *) offset + CONFIG_FLASH_BASE_ADDRESS) = val;
+	*((u8_t *) offset + CONFIG_FLASH_BASE_ADDRESS) = val;
 
-	rc = wait_flash_idle(regs);
-	regs->ctrl &= (~FLASH_CR_PG);
+	rc = flash_stm32_wait_flash_idle(dev);
+	regs->cr &= (~FLASH_CR_PG);
 
 	return rc;
 }
 
-static int erase_sector(uint16_t sector, struct stm32f4x_flash *regs)
+static int erase_sector(struct device *dev, u32_t sector)
 {
-	uint32_t tmp;
+	struct stm32f4x_flash *regs = FLASH_STM32_REGS(dev);
+	u32_t tmp;
 	int rc;
 
 	/* if the control register is locked, do not fail silently */
-	if (regs->ctrl & FLASH_CR_LOCK) {
+	if (regs->cr & FLASH_CR_LOCK) {
 		return -EIO;
 	}
 
-	rc = wait_flash_idle(regs);
+	rc = flash_stm32_wait_flash_idle(dev);
 	if (rc < 0) {
 		return rc;
 	}
 
-	regs->ctrl &= STM32F4X_SECTOR_MASK;
-	regs->ctrl |= FLASH_CR_SER | (sector << 3);
-	regs->ctrl |= FLASH_CR_STRT;
+	regs->cr &= STM32F4X_SECTOR_MASK;
+	regs->cr |= FLASH_CR_SER | (sector << 3);
+	regs->cr |= FLASH_CR_STRT;
 
 	/* flush the register write */
-	tmp = regs->ctrl;
+	tmp = regs->cr;
 
-	rc = wait_flash_idle(regs);
-	regs->ctrl &= (FLASH_CR_SER | FLASH_CR_SNB);
+	rc = flash_stm32_wait_flash_idle(dev);
+	regs->cr &= ~(FLASH_CR_SER | FLASH_CR_SNB);
 
 	return rc;
 }
 
-static void flush_caches(struct stm32f4x_flash *regs)
+int flash_stm32_block_erase_loop(struct device *dev, unsigned int offset,
+				 unsigned int len)
 {
-	if (regs->acr.val & FLASH_ACR_ICEN) {
-		regs->acr.val &= ~FLASH_ACR_ICEN;
-		regs->acr.val |= FLASH_ACR_ICRST;
-		regs->acr.val &= ~FLASH_ACR_ICRST;
-		regs->acr.val |= FLASH_ACR_ICEN;
+	struct flash_pages_info info;
+	u32_t start_sector, end_sector;
+	u32_t i;
+	int rc = 0;
+
+	rc = flash_get_page_info_by_offs(dev, offset, &info);
+	if (rc) {
+		return rc;
 	}
-
-	if (regs->acr.val & FLASH_ACR_DCEN) {
-		regs->acr.val &= ~FLASH_ACR_DCEN;
-		regs->acr.val |= FLASH_ACR_DCRST;
-		regs->acr.val &= ~FLASH_ACR_DCRST;
-		regs->acr.val |= FLASH_ACR_DCEN;
+	start_sector = info.index;
+	rc = flash_get_page_info_by_offs(dev, offset + len - 1, &info);
+	if (rc) {
+		return rc;
 	}
-}
+	end_sector = info.index;
 
-static int flash_stm32f4x_erase(struct device *dev, off_t offset, size_t len)
-{
-	struct flash_priv *p = dev->driver_data;
-	int i, rc = 0;
-
-	if (!valid_range(offset, len)) {
-		return -EINVAL;
-	}
-
-	if (!len) {
-		return 0;
-	}
-
-	k_sem_take(&p->sem, K_FOREVER);
-
-	i = stm32f4x_get_sector(offset);
-	for (; i <= stm32f4x_get_sector(offset + len - 1); i++) {
-		rc = erase_sector(i, p->regs);
+	for (i = start_sector; i <= end_sector; i++) {
+		rc = erase_sector(dev, i);
 		if (rc < 0) {
 			break;
 		}
 	}
-	flush_caches(p->regs);
-
-	k_sem_give(&p->sem);
 
 	return rc;
 }
 
-static int flash_stm32f4x_read(struct device *dev, off_t offset, void *data,
-	size_t len)
+int flash_stm32_write_range(struct device *dev, unsigned int offset,
+			    const void *data, unsigned int len)
 {
-	if (!valid_range(offset, len)) {
-		return -EINVAL;
-	}
-
-	if (!len) {
-		return 0;
-	}
-
-	memcpy(data, (void *) CONFIG_FLASH_BASE_ADDRESS + offset, len);
-
-	return 0;
-}
-
-static int flash_stm32f4x_write(struct device *dev, off_t offset,
-	const void *data, size_t len)
-{
-	struct flash_priv *p = dev->driver_data;
-	int rc, i;
-
-	if (!valid_range(offset, len)) {
-		return -EINVAL;
-	}
-
-	if (!len) {
-		return 0;
-	}
-
-	k_sem_take(&p->sem, K_FOREVER);
+	int i, rc = 0;
 
 	for (i = 0; i < len; i++, offset++) {
-		rc = write_byte(offset, ((const uint8_t *) data)[i], p->regs);
+		rc = write_byte(dev, offset, ((const u8_t *) data)[i]);
 		if (rc < 0) {
-			k_sem_give(&p->sem);
 			return rc;
 		}
 	}
-
-	k_sem_give(&p->sem);
-
-	return 0;
-}
-
-static int flash_stm32f4x_write_protection(struct device *dev, bool enable)
-{
-	struct flash_priv *p = dev->driver_data;
-	struct stm32f4x_flash *regs = p->regs;
-	int rc = 0;
-
-	k_sem_take(&p->sem, K_FOREVER);
-
-	if (enable) {
-		rc = wait_flash_idle(regs);
-		if (rc) {
-			k_sem_give(&p->sem);
-			return rc;
-		}
-		regs->ctrl |= FLASH_CR_LOCK;
-	} else {
-		if (regs->ctrl & FLASH_CR_LOCK) {
-			regs->key = FLASH_KEY1;
-			regs->key = FLASH_KEY2;
-		}
-	}
-
-	k_sem_give(&p->sem);
 
 	return rc;
 }
 
-static struct flash_priv flash_data = {
-	.regs = (struct stm32f4x_flash *) FLASH_R_BASE,
+/*
+ * Different SoC flash layouts are specified in across various
+ * reference manuals, but the flash layout for a given number of
+ * sectors is consistent across these manuals, with one "gotcha". The
+ * number of sectors is given by the HAL as FLASH_SECTOR_TOTAL.
+ *
+ * The only "gotcha" is that when there are 24 sectors, they are split
+ * across 2 "banks" of 12 sectors each, with another set of small
+ * sectors (16 KB) in the second bank occurring after the large ones
+ * (128 KB) in the first. We could consider supporting this as two
+ * devices to make the layout cleaner, but this will do for now.
+ */
+#ifndef FLASH_SECTOR_TOTAL
+#error "Unknown flash layout"
+#else  /* defined(FLASH_SECTOR_TOTAL) */
+#if FLASH_SECTOR_TOTAL == 5
+static const struct flash_pages_layout stm32f4_flash_layout[] = {
+	/* RM0401, table 5: STM32F410Tx, STM32F410Cx, STM32F410Rx */
+	{.pages_count = 4, .pages_size = KB(16)},
+	{.pages_count = 1, .pages_size = KB(64)},
 };
-
-static const struct flash_driver_api flash_stm32f4x_api = {
-	.write_protection = flash_stm32f4x_write_protection,
-	.erase = flash_stm32f4x_erase,
-	.write = flash_stm32f4x_write,
-	.read = flash_stm32f4x_read,
+#elif FLASH_SECTOR_TOTAL == 6
+static const struct flash_pages_layout stm32f4_flash_layout[] = {
+	/* RM0368, table 5: STM32F401xC */
+	{.pages_count = 4, .pages_size = KB(16)},
+	{.pages_count = 1, .pages_size = KB(64)},
+	{.pages_count = 1, .pages_size = KB(128)},
 };
+#elif FLASH_SECTOR_TOTAL == 8
+static const struct flash_pages_layout stm32f4_flash_layout[] = {
+	/*
+	 * RM0368, table 5: STM32F401xE
+	 * RM0383, table 4: STM32F411xE
+	 * RM0390, table 4: STM32F446xx
+	 */
+	{.pages_count = 4, .pages_size = KB(16)},
+	{.pages_count = 1, .pages_size = KB(64)},
+	{.pages_count = 3, .pages_size = KB(128)},
+};
+#elif FLASH_SECTOR_TOTAL == 12
+static const struct flash_pages_layout stm32f4_flash_layout[] = {
+	/*
+	 * RM0090, table 5: STM32F405xx, STM32F415xx, STM32F407xx, STM32F417xx
+	 * RM0402, table 5: STM32F412Zx, STM32F412Vx, STM32F412Rx, STM32F412Cx
+	 */
+	{.pages_count = 4, .pages_size = KB(16)},
+	{.pages_count = 1, .pages_size = KB(64)},
+	{.pages_count = 7, .pages_size = KB(128)},
+};
+#elif FLASH_SECTOR_TOTAL == 16
+static const struct flash_pages_layout stm32f4_flash_layout[] = {
+	/* RM0430, table 5.: STM32F413xx, STM32F423xx */
+	{.pages_count = 4, .pages_size = KB(16)},
+	{.pages_count = 1, .pages_size = KB(64)},
+	{.pages_count = 11, .pages_size = KB(128)},
+};
+#elif FLASH_SECTOR_TOTAL == 24
+static const struct flash_pages_layout stm32f4_flash_layout[] = {
+	/*
+	 * RM0090, table 6: STM32F427xx, STM32F437xx, STM32F429xx, STM32F439xx
+	 * RM0386, table 4: STM32F469xx, STM32F479xx
+	 */
+	{.pages_count = 4, .pages_size = KB(16)},
+	{.pages_count = 1, .pages_size = KB(64)},
+	{.pages_count = 7, .pages_size = KB(128)},
+	{.pages_count = 4, .pages_size = KB(16)},
+	{.pages_count = 1, .pages_size = KB(64)},
+	{.pages_count = 7, .pages_size = KB(128)},
+};
+#else
+#error "Unknown flash layout"
+#endif /* FLASH_SECTOR_TOTAL == 5 */
+#endif/* !defined(FLASH_SECTOR_TOTAL) */
 
-static int stm32f4x_flash_init(struct device *dev)
+void flash_stm32_page_layout(struct device *dev,
+			     const struct flash_pages_layout **layout,
+			     size_t *layout_size)
 {
-	struct flash_priv *p = dev->driver_data;
+	ARG_UNUSED(dev);
 
-	k_sem_init(&p->sem, 1, 1);
-
-	return flash_stm32f4x_write_protection(dev, false);
+	*layout = stm32f4_flash_layout;
+	*layout_size = ARRAY_SIZE(stm32f4_flash_layout);
 }
-
-DEVICE_AND_API_INIT(stm32f4x_flash,
-	CONFIG_SOC_FLASH_STM32_DEV_NAME,
-	stm32f4x_flash_init,
-	&flash_data,
-	NULL,
-	POST_KERNEL,
-	CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
-	&flash_stm32f4x_api);
-

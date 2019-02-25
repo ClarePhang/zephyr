@@ -18,8 +18,6 @@ QUARK_SE_IPM_DEFINE(message_ipm2, 3, QUARK_SE_IPM_OUTBOUND);
 /* specify delay between greetings (in ms); compute equivalent in ticks */
 
 #define SLEEPTIME               1000
-#define SCSS_REGISTER_BASE      0xB0800000
-#define SCSS_SS_STS             0x0604
 
 #define PING_TIME               1000
 #define STACKSIZE               2000
@@ -29,11 +27,12 @@ QUARK_SE_IPM_DEFINE(message_ipm2, 3, QUARK_SE_IPM_OUTBOUND);
 #define PING_FIBER_PRI          4
 #define TASK_PRIO               7
 
-char thread_stacks[2][STACKSIZE];
+K_THREAD_STACK_ARRAY_DEFINE(thread_stacks, 2, STACKSIZE);
+static struct k_thread threads[2];
 
-uint32_t scss_reg(uint32_t offset)
+u32_t scss_reg(u32_t offset)
 {
-	volatile uint32_t *ret = (volatile uint32_t *)(SCSS_REGISTER_BASE +
+	volatile u32_t *ret = (volatile u32_t *)(SCSS_REGISTER_BASE +
 						       offset);
 
 	return *ret;
@@ -45,7 +44,7 @@ static const char dat2[] = "pqrstuvwxyz0123";
 
 void message_source(struct device *ipm)
 {
-	uint8_t counter = 0;
+	u8_t counter = 0U;
 
 	printk("sending messages for IPM device %p\n", ipm);
 
@@ -92,7 +91,7 @@ void main_thread(void *arg1, void *arg2, void *arg3)
 	ARG_UNUSED(arg2);
 	ARG_UNUSED(arg3);
 	int ctr = 0;
-	uint32_t ss_sts;
+	u32_t ss_sts;
 
 	while (1) {
 		/* say "hello" */
@@ -135,11 +134,12 @@ void main(void)
 {
 	printk("===== app started ========\n");
 
-	k_thread_spawn(&thread_stacks[0][0], STACKSIZE, main_thread,
-		       0, 0, 0, K_PRIO_COOP(MAIN_FIBER_PRI), 0, 0);
+	k_thread_create(&threads[0], &thread_stacks[0][0], STACKSIZE,
+			main_thread, 0, 0, 0,
+			K_PRIO_COOP(MAIN_FIBER_PRI), 0, 0);
 
-	k_thread_spawn(&thread_stacks[1][0], STACKSIZE, ping_source_thread,
-		       0, 0, 0, K_PRIO_COOP(PING_FIBER_PRI), 0, 0);
-
+	k_thread_create(&threads[1], &thread_stacks[1][0], STACKSIZE,
+			ping_source_thread, 0, 0, 0,
+			K_PRIO_COOP(PING_FIBER_PRI), 0, 0);
 }
 

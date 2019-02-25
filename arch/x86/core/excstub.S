@@ -23,8 +23,11 @@
 	/* exports (internal APIs) */
 
 	GTEXT(_exception_enter)
+	GTEXT(_kernel_oops_handler)
 
 	/* externs (internal APIs) */
+	GTEXT(_do_kernel_oops)
+
 /**
  *
  * @brief Inform the kernel of an exception
@@ -47,7 +50,7 @@
  *
  * C function prototype:
  *
- * void _exception_enter(uint32_t error_code, void *handler)
+ * void _exception_enter(u32_t error_code, void *handler)
  *
  */
 
@@ -69,7 +72,9 @@ SECTION_FUNC(TEXT, _exception_enter)
 
 	cld
 
-
+#ifdef CONFIG_X86_KPTI
+	call z_x86_trampoline_to_kernel
+#endif
 	/*
 	 * Swap ecx and handler function on the current stack;
 	 */
@@ -102,34 +107,30 @@ SECTION_FUNC(TEXT, _exception_enter)
 	pushl	%ebx
 	pushl	%ebp
 
+#ifdef CONFIG_USERSPACE
+	/* Test if interrupted context was in ring 3 */
+	testb	$3, 36(%esp)
+	jz 1f
+	/* It was. The original stack pointer is on the stack 44 bytes
+	 * from the current top
+	 */
+	pushl	44(%esp)
+	jmp 2f
+1:
+#endif
 	leal	44(%esp), %eax   /* Calculate ESP before interrupt occurred */
 	pushl	%eax             /* Save calculated ESP */
-
+#ifdef CONFIG_USERSPACE
+2:
+#endif
 	/* ESP is pointing to the ESF at this point */
 
-#if defined(CONFIG_FP_SHARING) ||  defined(CONFIG_GDB_INFO)
+#if defined(CONFIG_FP_SHARING)
 
 	movl	_kernel + _kernel_offset_to_current, %edx
 
 	/* inc exception nest count */
 	incl	_thread_offset_to_excNestCount(%edx)
-
-#ifdef CONFIG_GDB_INFO
-
-    /*
-     * Save the pointer to the stack frame (NANO_ESF *) in
-     * the current execution context if this is the outermost exception.
-     * The ESF pointer is used by debug tools to locate the volatile
-     * registers and the stack of the preempted thread.
-     */
-
-	testb	$_EXC_ACTIVE, _thread_offset_to_thread_state(%edx)
-	jne	alreadyInException
-	movl	%esp, _thread_offset_to_esf(%edx)
-
-alreadyInException:
-
-#endif /* CONFIG_GDB_INFO */
 
 	/*
 	 * Set the _EXC_ACTIVE state bit of the current thread.
@@ -141,7 +142,7 @@ alreadyInException:
 
 	orb	$_EXC_ACTIVE, _thread_offset_to_thread_state(%edx)
 
-#endif /* CONFIG_FP_SHARING || CONFIG_GDB_INFO */
+#endif /* CONFIG_FP_SHARING */
 
 	/*
 	 * restore interrupt enable state, then call the handler
@@ -165,13 +166,13 @@ allDone:
 #else
 	pushl	%esp			/* push NANO_ESF * parameter */
 #endif
-	call	*%ecx			/* call exception handler */
+	INDIRECT_CALL(%ecx)		/* call exception handler */
 
 #ifndef CONFIG_X86_IAMCU
 	addl	$0x4, %esp
 #endif
 
-#if defined(CONFIG_FP_SHARING) || defined(CONFIG_GDB_INFO)
+#if defined(CONFIG_FP_SHARING)
 
 	movl	_kernel + _kernel_offset_to_current, %ecx
 
@@ -201,7 +202,7 @@ allDone:
 	andb	$~_EXC_ACTIVE, _thread_offset_to_thread_state(%ecx)
 
 nestedException:
-#endif /* CONFIG_FP_SHARING || CONFIG_GDB_INFO */
+#endif /* CONFIG_FP_SHARING */
 
 	/*
 	 * Pop the non-volatile registers from the stack.
@@ -224,5 +225,11 @@ nestedException:
 	addl	$4, %esp	/* "pop" error code */
 
 	/* Pop of EFLAGS will re-enable interrupts and restore direction flag */
-	iret
+	KPTI_IRET
 
+#if CONFIG_X86_KERNEL_OOPS
+SECTION_FUNC(TEXT, _kernel_oops_handler)
+	push $0 /* dummy error code */
+	push $_do_kernel_oops
+	jmp _exception_enter
+#endif

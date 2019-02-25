@@ -6,12 +6,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef _IPM_CONSOLE_H_
-#define _IPM_CONSOLE_H_
+#ifndef ZEPHYR_INCLUDE_DRIVERS_CONSOLE_IPM_CONSOLE_H_
+#define ZEPHYR_INCLUDE_DRIVERS_CONSOLE_IPM_CONSOLE_H_
 
 #include <kernel.h>
 #include <device.h>
-#include <misc/ring_buffer.h>
+#include <ring_buffer.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,13 +35,13 @@ struct ipm_console_receiver_config_info {
 	 * Stack for the receiver's thread, which prints out messages as
 	 * they come in. Should be sized CONFIG_IPM_CONSOLE_STACK_SIZE
 	 */
-	char *thread_stack;
+	k_thread_stack_t *thread_stack;
 
 	/**
 	 * Ring buffer data area for stashing characters from the interrupt
 	 * callback
 	 */
-	uint32_t *ring_buf_data;
+	u32_t *ring_buf_data;
 
 	/** Size of ring_buf_data in 32-bit chunks */
 	unsigned int rb_size32;
@@ -77,6 +77,9 @@ struct ipm_console_receiver_runtime_data {
 	 * full buffer
 	 */
 	int channel_disabled;
+
+	/** Receiver worker thread */
+	struct k_thread rx_thread;
 };
 
 struct ipm_console_sender_config_info {
@@ -102,4 +105,4 @@ int ipm_console_sender_init(struct device *d);
 }
 #endif
 
-#endif /* _IPM_CONSOLE_H_ */
+#endif /* ZEPHYR_INCLUDE_DRIVERS_CONSOLE_IPM_CONSOLE_H_ */

@@ -11,8 +11,8 @@
  * ARC-specific kernel ffs interface. Included by arc/arch.h.
  */
 
-#ifndef _ARCH_ARC_V2_FFS_H_
-#define _ARCH_ARC_V2_FFS_H_
+#ifndef ZEPHYR_INCLUDE_ARCH_ARC_V2_FFS_H_
+#define ZEPHYR_INCLUDE_ARCH_ARC_V2_FFS_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,7 +20,7 @@ extern "C" {
 
 #ifndef _ASMLANGUAGE
 
-#include <stdint.h>
+#include <zephyr/types.h>
 
 /**
  *
@@ -35,7 +35,7 @@ extern "C" {
  */
 
 #if defined(__GNUC__)
-static ALWAYS_INLINE unsigned int find_msb_set(uint32_t op)
+static ALWAYS_INLINE unsigned int find_msb_set(u32_t op)
 {
 	unsigned int bit;
 
@@ -64,7 +64,7 @@ static ALWAYS_INLINE unsigned int find_msb_set(uint32_t op)
  */
 
 #if defined(__GNUC__)
-static ALWAYS_INLINE unsigned int find_lsb_set(uint32_t op)
+static ALWAYS_INLINE unsigned int find_lsb_set(u32_t op)
 {
 	unsigned int bit;
 
@@ -87,4 +87,4 @@ static ALWAYS_INLINE unsigned int find_lsb_set(uint32_t op)
 }
 #endif
 
-#endif /* _ARCH_ARC_V2_FFS_H_ */
+#endif /* ZEPHYR_INCLUDE_ARCH_ARC_V2_FFS_H_ */

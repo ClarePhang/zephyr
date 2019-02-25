@@ -8,10 +8,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __SENSOR_LPS25HB_H__
-#define __SENSOR_LPS25HB_H__
+#ifndef ZEPHYR_DRIVERS_SENSOR_LPS25HB_LPS25HB_H_
+#define ZEPHYR_DRIVERS_SENSOR_LPS25HB_LPS25HB_H_
 
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <i2c.h>
 #include <misc/util.h>
 
@@ -148,17 +148,14 @@
 
 struct lps25hb_config {
 	char *i2c_master_dev_name;
-	uint16_t i2c_slave_addr;
+	u16_t i2c_slave_addr;
 };
 
 struct lps25hb_data {
 	struct device *i2c_master;
 
-	int32_t sample_press;
-	int16_t sample_temp;
+	s32_t sample_press;
+	s16_t sample_temp;
 };
 
-#define SYS_LOG_DOMAIN "LPS25HB"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-#endif /* __SENSOR_LPS25HB_H__ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_LPS25HB_LPS25HB_H_ */

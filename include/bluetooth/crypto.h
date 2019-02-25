@@ -8,8 +8,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef __BT_CRYPTO_H
-#define __BT_CRYPTO_H
+#ifndef ZEPHYR_INCLUDE_BLUETOOTH_CRYPTO_H_
+#define ZEPHYR_INCLUDE_BLUETOOTH_CRYPTO_H_
 
 /**
  * @brief Cryptography
@@ -49,8 +49,8 @@ int bt_rand(void *buf, size_t len);
  *
  *  @return Zero on success or error code otherwise.
  */
-int bt_encrypt_le(const uint8_t key[16], const uint8_t plaintext[16],
-		  uint8_t enc_data[16]);
+int bt_encrypt_le(const u8_t key[16], const u8_t plaintext[16],
+		  u8_t enc_data[16]);
 
 /** @brief AES encrypt big-endian data.
  *
@@ -64,8 +64,8 @@ int bt_encrypt_le(const uint8_t key[16], const uint8_t plaintext[16],
  *
  *  @return Zero on success or error code otherwise.
  */
-int bt_encrypt_be(const uint8_t key[16], const uint8_t plaintext[16],
-		  uint8_t enc_data[16]);
+int bt_encrypt_be(const u8_t key[16], const u8_t plaintext[16],
+		  u8_t enc_data[16]);
 
 #ifdef __cplusplus
 }
@@ -74,4 +74,4 @@ int bt_encrypt_be(const uint8_t key[16], const uint8_t plaintext[16],
  * @}
  */
 
-#endif /* __BT_CRYPTO_H */
+#endif /* ZEPHYR_INCLUDE_BLUETOOTH_CRYPTO_H_ */

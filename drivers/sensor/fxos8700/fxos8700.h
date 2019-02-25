@@ -8,15 +8,15 @@
 #include <i2c.h>
 #include <gpio.h>
 
-#define SYS_LOG_DOMAIN "FXOS8700"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-
 #define FXOS8700_REG_STATUS			0x00
 #define FXOS8700_REG_OUTXMSB			0x01
 #define FXOS8700_REG_INT_SOURCE			0x0c
 #define FXOS8700_REG_WHOAMI			0x0d
 #define FXOS8700_REG_XYZ_DATA_CFG		0x0e
+#define FXOS8700_REG_FF_MT_CFG			0x15
+#define FXOS8700_REG_FF_MT_SRC			0x16
+#define FXOS8700_REG_FF_MT_THS			0x17
+#define FXOS8700_REG_FF_MT_COUNT		0x18
 #define FXOS8700_REG_PULSE_CFG			0x21
 #define FXOS8700_REG_PULSE_SRC			0x22
 #define FXOS8700_REG_PULSE_THSX			0x23
@@ -35,7 +35,14 @@
 #define FXOS8700_REG_M_CTRLREG1			0x5b
 #define FXOS8700_REG_M_CTRLREG2			0x5c
 
+/* Devices that are compatible with this driver: */
+#define WHOAMI_ID_MMA8451			0x1A
+#define WHOAMI_ID_MMA8652			0x4A
+#define WHOAMI_ID_MMA8653			0x5A
+#define WHOAMI_ID_FXOS8700			0xC7
+
 #define FXOS8700_DRDY_MASK			(1 << 0)
+#define FXOS8700_MOTION_MASK			(1 << 2)
 #define FXOS8700_PULSE_MASK			(1 << 3)
 
 #define FXOS8700_XYZ_DATA_CFG_FS_MASK		0x03
@@ -44,8 +51,25 @@
 
 #define FXOS8700_CTRLREG1_ACTIVE_MASK		0x01
 #define FXOS8700_CTRLREG1_DR_MASK		(7 << 3)
+#define FXOS8700_CTRLREG1_DR_RATE_800		0
+#define FXOS8700_CTRLREG1_DR_RATE_400		(1 << 3)
+#define FXOS8700_CTRLREG1_DR_RATE_200		(2 << 3)
+#define FXOS8700_CTRLREG1_DR_RATE_100		(3 << 3)
+#define FXOS8700_CTRLREG1_DR_RATE_50		(4 << 3)
+#define FXOS8700_CTRLREG1_DR_RATE_12_5		(5 << 3)
+#define FXOS8700_CTRLREG1_DR_RATE_6_25		(6 << 3)
+#define FXOS8700_CTRLREG1_DR_RATE_1_56		(7 << 3)
 
 #define FXOS8700_CTRLREG2_RST_MASK		0x40
+#define FXOS8700_CTRLREG2_MODS_MASK		0x03
+
+#define FXOS8700_FF_MT_CFG_ELE			BIT(7)
+#define FXOS8700_FF_MT_CFG_OAE			BIT(6)
+#define FXOS8700_FF_MT_CFG_ZEFE			BIT(5)
+#define FXOS8700_FF_MT_CFG_YEFE			BIT(4)
+#define FXOS8700_FF_MT_CFG_XEFE			BIT(3)
+#define FXOS8700_FF_MT_THS_MASK			0x7f
+#define FXOS8700_FF_MT_THS_SCALE		(SENSOR_G * 63000LL / 1000000LL)
 
 #define FXOS8700_M_CTRLREG1_MODE_MASK		0x03
 
@@ -79,6 +103,13 @@ enum fxos8700_range {
 	FXOS8700_RANGE_8G,
 };
 
+enum fxos8700_power_mode {
+	FXOS8700_PM_NORMAL		= 0,
+	FXOS8700_PM_LOW_NOISE_LOW_POWER,
+	FXOS8700_PM_HIGH_RESOLUTION,
+	FXOS8700_PM_LOW_POWER,
+};
+
 enum fxos8700_channel {
 	FXOS8700_CHANNEL_ACCEL_X	= 0,
 	FXOS8700_CHANNEL_ACCEL_Y,
@@ -92,21 +123,21 @@ struct fxos8700_config {
 	char *i2c_name;
 #ifdef CONFIG_FXOS8700_TRIGGER
 	char *gpio_name;
-	uint8_t gpio_pin;
+	u8_t gpio_pin;
 #endif
-	uint8_t i2c_address;
-	uint8_t whoami;
+	u8_t i2c_address;
 	enum fxos8700_mode mode;
+	enum fxos8700_power_mode power_mode;
 	enum fxos8700_range range;
-	uint8_t start_addr;
-	uint8_t start_channel;
-	uint8_t num_channels;
+	u8_t start_addr;
+	u8_t start_channel;
+	u8_t num_channels;
 #ifdef CONFIG_FXOS8700_PULSE
-	uint8_t pulse_cfg;
-	uint8_t pulse_ths[3];
-	uint8_t pulse_tmlt;
-	uint8_t pulse_ltcy;
-	uint8_t pulse_wind;
+	u8_t pulse_cfg;
+	u8_t pulse_ths[3];
+	u8_t pulse_tmlt;
+	u8_t pulse_ltcy;
+	u8_t pulse_wind;
 #endif
 };
 
@@ -115,7 +146,7 @@ struct fxos8700_data {
 	struct k_sem sem;
 #ifdef CONFIG_FXOS8700_TRIGGER
 	struct device *gpio;
-	uint8_t gpio_pin;
+	u8_t gpio_pin;
 	struct gpio_callback gpio_cb;
 	sensor_trigger_handler_t drdy_handler;
 #endif
@@ -123,18 +154,23 @@ struct fxos8700_data {
 	sensor_trigger_handler_t tap_handler;
 	sensor_trigger_handler_t double_tap_handler;
 #endif
+#ifdef CONFIG_FXOS8700_MOTION
+	sensor_trigger_handler_t motion_handler;
+#endif
 #ifdef CONFIG_FXOS8700_TRIGGER_OWN_THREAD
-	char __stack thread_stack[CONFIG_FXOS8700_THREAD_STACK_SIZE];
+	K_THREAD_STACK_MEMBER(thread_stack, CONFIG_FXOS8700_THREAD_STACK_SIZE);
+	struct k_thread thread;
 	struct k_sem trig_sem;
 #endif
 #ifdef CONFIG_FXOS8700_TRIGGER_GLOBAL_THREAD
 	struct k_work work;
 	struct device *dev;
 #endif
-	int16_t raw[FXOS8700_MAX_NUM_CHANNELS];
+	s16_t raw[FXOS8700_MAX_NUM_CHANNELS];
 #ifdef CONFIG_FXOS8700_TEMP
-	int8_t temp;
+	s8_t temp;
 #endif
+	u8_t whoami;
 };
 
 int fxos8700_get_power(struct device *dev, enum fxos8700_power *power);

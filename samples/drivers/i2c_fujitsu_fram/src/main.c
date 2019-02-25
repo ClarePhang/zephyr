@@ -11,7 +11,7 @@
 #include <i2c.h>
 
 #if defined(CONFIG_SOC_QUARK_SE_C1000_SS)
-#define I2C_DEV CONFIG_I2C_SS_0_NAME
+#define I2C_DEV DT_I2C_SS_0_NAME
 #else
 #define I2C_DEV CONFIG_I2C_0_NAME
 #endif
@@ -22,10 +22,10 @@
 
 #define FRAM_I2C_ADDR	0x50
 
-static int write_bytes(struct device *i2c_dev, uint16_t addr,
-		       uint8_t *data, uint32_t num_bytes)
+static int write_bytes(struct device *i2c_dev, u16_t addr,
+		       u8_t *data, u32_t num_bytes)
 {
-	uint8_t wr_addr[2];
+	u8_t wr_addr[2];
 	struct i2c_msg msgs[2];
 
 	/* FRAM address */
@@ -47,10 +47,10 @@ static int write_bytes(struct device *i2c_dev, uint16_t addr,
 	return i2c_transfer(i2c_dev, &msgs[0], 2, FRAM_I2C_ADDR);
 }
 
-static int read_bytes(struct device *i2c_dev, uint16_t addr,
-		      uint8_t *data, uint32_t num_bytes)
+static int read_bytes(struct device *i2c_dev, u16_t addr,
+		      u8_t *data, u32_t num_bytes)
 {
-	uint8_t wr_addr[2];
+	u8_t wr_addr[2];
 	struct i2c_msg msgs[2];
 
 	/* Now try to read back from FRAM */
@@ -77,8 +77,8 @@ static int read_bytes(struct device *i2c_dev, uint16_t addr,
 void main(void)
 {
 	struct device *i2c_dev;
-	uint8_t cmp_data[16];
-	uint8_t data[16];
+	u8_t cmp_data[16];
+	u8_t data[16];
 	int i, ret;
 
 	i2c_dev = device_get_binding(I2C_DEV);

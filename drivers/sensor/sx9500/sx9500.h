@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __SENSOR_SX9500_H__
-#define __SENSOR_SX9500_H__
+#ifndef ZEPHYR_DRIVERS_SENSOR_SX9500_SX9500_H_
+#define ZEPHYR_DRIVERS_SENSOR_SX9500_SX9500_H_
 
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <device.h>
 
 #define SX9500_REG_IRQ_SRC		0x00
@@ -26,8 +26,8 @@
 
 struct sx9500_data {
 	struct device *i2c_master;
-	uint16_t i2c_slave_addr;
-	uint8_t prox_stat;
+	u16_t i2c_slave_addr;
+	u8_t prox_stat;
 
 	struct gpio_callback gpio_cb;
 
@@ -61,7 +61,4 @@ static inline int sx9500_setup_interrupt(struct device *dev)
 }
 #endif
 
-#define SYS_LOG_DOMAIN "SX9500"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-#endif /* __SENSOR_SX9500_H__ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_SX9500_SX9500_H_ */

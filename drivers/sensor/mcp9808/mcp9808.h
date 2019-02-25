@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __SENSOR_MCP9808_H__
-#define __SENSOR_MCP9808_H__
+#ifndef ZEPHYR_DRIVERS_SENSOR_MCP9808_MCP9808_H_
+#define ZEPHYR_DRIVERS_SENSOR_MCP9808_MCP9808_H_
 
 #include <errno.h>
 
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <device.h>
 #include <sensor.h>
 #include <misc/util.h>
@@ -34,9 +34,9 @@
 
 struct mcp9808_data {
 	struct device *i2c_master;
-	uint16_t i2c_slave_addr;
+	u16_t i2c_slave_addr;
 
-	uint16_t reg_val;
+	u16_t reg_val;
 
 	struct gpio_callback gpio_cb;
 
@@ -55,7 +55,7 @@ struct mcp9808_data {
 #endif
 };
 
-int mcp9808_reg_read(struct mcp9808_data *data, uint8_t reg, uint16_t *val);
+int mcp9808_reg_read(struct mcp9808_data *data, u8_t reg, u16_t *val);
 
 #ifdef CONFIG_MCP9808_TRIGGER
 int mcp9808_attr_set(struct device *dev, enum sensor_channel chan,
@@ -86,7 +86,4 @@ static void mcp9808_setup_interrupt(struct device *dev)
 }
 #endif /* CONFIG_MCP9808_TRIGGER */
 
-#define SYS_LOG_DOMAIN "MCP9808"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-#endif /* __SENSOR_MCP9808_H__ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_MCP9808_MCP9808_H_ */

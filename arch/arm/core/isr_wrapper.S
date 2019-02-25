@@ -14,7 +14,7 @@
 
 #include <offsets_short.h>
 #include <toolchain.h>
-#include <sections.h>
+#include <linker/sections.h>
 #include <sw_isr_table.h>
 #include <kernel_structs.h>
 #include <arch/cpu.h>
@@ -32,7 +32,7 @@ GTEXT(_IntExit)
  *
  * When inserted in the vector table, _isr_wrapper() demuxes the ISR table using
  * the running interrupt number as the index, and invokes the registered ISR
- * with its correspoding argument. When returning from the ISR, it determines
+ * with its corresponding argument. When returning from the ISR, it determines
  * if a context switch needs to happen (see documentation for __pendsv()) and
  * pends the PendSV exception if so: the latter will perform the context switch
  * itself.
@@ -41,14 +41,14 @@ GTEXT(_IntExit)
  */
 SECTION_FUNC(TEXT, _isr_wrapper)
 
-	push {lr}		/* lr is now the first item on the stack */
+	push {r0,lr}		/* r0, lr are now the first items on the stack */
 
-#ifdef CONFIG_KERNEL_EVENT_LOGGER_INTERRUPT
-	bl _sys_k_event_logger_interrupt
+#ifdef CONFIG_EXECUTION_BENCHMARKING
+	bl read_timer_start_of_isr
 #endif
 
-#ifdef CONFIG_KERNEL_EVENT_LOGGER_SLEEP
-	bl _sys_k_event_logger_exit_sleep
+#ifdef CONFIG_TRACING
+	bl z_sys_trace_isr_enter
 #endif
 
 #ifdef CONFIG_SYS_POWER_MANAGEMENT
@@ -68,7 +68,7 @@ SECTION_FUNC(TEXT, _isr_wrapper)
 	ldr r0, [r2, #_kernel_offset_to_idle]
 	cmp r0, #0
 
-#if defined(CONFIG_ARMV6_M)
+#if defined(CONFIG_ARMV6_M_ARMV8_M_BASELINE)
 	beq _idle_state_cleared
 	movs.n r1, #0
 	/* clear kernel idle state */
@@ -76,7 +76,7 @@ SECTION_FUNC(TEXT, _isr_wrapper)
 	blx _sys_power_save_idle_exit
 _idle_state_cleared:
 
-#elif defined(CONFIG_ARMV7_M)
+#elif defined(CONFIG_ARMV7_M_ARMV8_M_MAINLINE)
 	ittt ne
 	movne	r1, #0
 		/* clear kernel idle state */
@@ -84,37 +84,56 @@ _idle_state_cleared:
 		blxne	_sys_power_save_idle_exit
 #else
 #error Unknown ARM architecture
-#endif /* CONFIG_ARMV6_M */
+#endif /* CONFIG_ARMV6_M_ARMV8_M_BASELINE */
 
 	cpsie i		/* re-enable interrupts (PRIMASK = 0) */
 #endif
 
 	mrs r0, IPSR	/* get exception number */
-#if defined(CONFIG_ARMV6_M)
+#if defined(CONFIG_ARMV6_M_ARMV8_M_BASELINE)
 	ldr r1, =16
 	subs r0, r1	/* get IRQ number */
 	lsls r0, #3	/* table is 8-byte wide */
-#elif defined(CONFIG_ARMV7_M)
+#elif defined(CONFIG_ARMV7_M_ARMV8_M_MAINLINE)
 	sub r0, r0, #16	/* get IRQ number */
 	lsl r0, r0, #3	/* table is 8-byte wide */
 #else
 #error Unknown ARM architecture
-#endif /* CONFIG_ARMV6_M */
+#endif /* CONFIG_ARMV6_M_ARMV8_M_BASELINE */
 	ldr r1, =_sw_isr_table
 	add r1, r1, r0	/* table entry: ISRs must have their MSB set to stay
 			 * in thumb mode */
 
 	ldm r1!,{r0,r3}	/* arg in r0, ISR in r3 */
+#ifdef CONFIG_EXECUTION_BENCHMARKING
+	stm sp!,{r0-r3} /* Save r0 to r3 into stack */
+	push {r0, lr}
+	bl read_timer_end_of_isr
+#if defined(CONFIG_ARMV6_M_ARMV8_M_BASELINE)
+	pop {r0, r3}
+	mov lr,r3
+#else
+	pop {r0, lr}
+#endif /* CONFIG_ARMV6_M_ARMV8_M_BASELINE */
+	ldm sp!,{r0-r3} /* Restore r0 to r3 regs */
+#endif /* CONFIG_EXECUTION_BENCHMARKING */
 	blx r3		/* call ISR */
 
-#if defined(CONFIG_ARMV6_M)
-	pop {r3}
+#ifdef CONFIG_TRACING
+	bl z_sys_trace_isr_exit
+#endif
+
+#if defined(CONFIG_ARMV6_M_ARMV8_M_BASELINE)
+	pop {r0, r3}
 	mov lr, r3
-#elif defined(CONFIG_ARMV7_M)
-	pop {lr}
+#elif defined(CONFIG_ARMV7_M_ARMV8_M_MAINLINE)
+	pop {r0, lr}
 #else
 #error Unknown ARM architecture
-#endif /* CONFIG_ARMV6_M */
+#endif /* CONFIG_ARMV6_M_ARMV8_M_BASELINE */
 
-	/* exception return is done in _IntExit() */
-	b _IntExit
+	/* Use 'bx' instead of 'b' because 'bx' can jump further, and use
+	 * 'bx' instead of 'blx' because exception return is done in
+	 * _IntExit() */
+	ldr r0, =_IntExit
+	bx r0

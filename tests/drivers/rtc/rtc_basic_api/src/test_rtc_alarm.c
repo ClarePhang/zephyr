@@ -24,7 +24,7 @@
  * @}
  */
 
-#include <test_rtc.h>
+#include "test_rtc.h"
 
 static bool rtc_alarm_up;
 
@@ -68,7 +68,7 @@ static int test_alarm(void)
 		return TC_FAIL;
 	}
 
-	k_sleep(1500);
+	k_sleep(2000);
 
 	if (!rtc_alarm_up) {
 		TC_PRINT("RTC alarm doesn't work well\n");
@@ -82,7 +82,7 @@ static int test_alarm(void)
 		return TC_FAIL;
 	}
 
-	k_sleep(1500);
+	k_sleep(2000);
 
 	if (!rtc_alarm_up) {
 		TC_PRINT("RTC alarm doesn't work well\n");
@@ -112,5 +112,5 @@ static int test_alarm(void)
 
 void test_rtc_alarm(void)
 {
-	assert_true(test_alarm() == TC_PASS, NULL);
+	zassert_true(test_alarm() == TC_PASS, NULL);
 }

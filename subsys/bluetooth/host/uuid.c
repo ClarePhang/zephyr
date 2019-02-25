@@ -79,11 +79,11 @@ int bt_uuid_cmp(const struct bt_uuid *u1, const struct bt_uuid *u2)
 	return -EINVAL;
 }
 
-#if defined(CONFIG_BLUETOOTH_DEBUG)
+#if defined(CONFIG_BT_DEBUG)
 void bt_uuid_to_str(const struct bt_uuid *uuid, char *str, size_t len)
 {
-	uint32_t tmp1, tmp5;
-	uint16_t tmp0, tmp2, tmp3, tmp4;
+	u32_t tmp1, tmp5;
+	u16_t tmp0, tmp2, tmp3, tmp4;
 
 	switch (uuid->type) {
 	case BT_UUID_TYPE_16:
@@ -104,7 +104,7 @@ void bt_uuid_to_str(const struct bt_uuid *uuid, char *str, size_t len)
 			 tmp5, tmp4, tmp3, tmp2, tmp1, tmp0);
 		break;
 	default:
-		memset(str, 0, len);
+		(void)memset(str, 0, len);
 		return;
 	}
 }
@@ -117,4 +117,4 @@ const char *bt_uuid_str(const struct bt_uuid *uuid)
 
 	return str;
 }
-#endif /* CONFIG_BLUETOOTH_DEBUG */
+#endif /* CONFIG_BT_DEBUG */

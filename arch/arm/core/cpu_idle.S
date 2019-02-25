@@ -12,7 +12,7 @@
 
 #include <offsets_short.h>
 #include <toolchain.h>
-#include <sections.h>
+#include <linker/sections.h>
 #include <arch/cpu.h>
 #ifdef CONFIG_TICKLESS_IDLE
 #include <kernel_structs.h>
@@ -39,7 +39,7 @@ GTEXT(k_cpu_atomic_idle)
  *
  * @brief Initialization of CPU idle
  *
- * Only called by nanoArchInit(). Sets SEVONPEND bit once for the system's
+ * Only called by kernel_arch_init(). Sets SEVONPEND bit once for the system's
  * duration.
  *
  * @return N/A
@@ -67,7 +67,7 @@ SECTION_FUNC(TEXT, _CpuIdleInit)
  *
  * C function prototype:
  *
- * int32_t _NanoIdleValGet (void);
+ * s32_t _NanoIdleValGet (void);
  */
 
 SECTION_FUNC(TEXT, _NanoIdleValGet)
@@ -113,22 +113,26 @@ SECTION_FUNC(TEXT, _NanoIdleValClear)
  */
 
 SECTION_FUNC(TEXT, k_cpu_idle)
-#ifdef CONFIG_KERNEL_EVENT_LOGGER_SLEEP
-	push {lr}
-	bl    _sys_k_event_logger_enter_sleep
-	pop {r0}
-	mov lr, r0
-#endif
+#ifdef CONFIG_TRACING
+	push {r0, lr}
+	bl    z_sys_trace_idle
+#if defined(CONFIG_ARMV6_M_ARMV8_M_BASELINE)
+	pop {r0, r1}
+        mov lr, r1
+#else
+	pop {r0, lr}
+#endif /* CONFIG_ARMV6_M_ARMV8_M_BASELINE */
+#endif /* CONFIG_TRACING */
 
-#if defined(CONFIG_ARMV6_M)
+#if defined(CONFIG_ARMV6_M_ARMV8_M_BASELINE)
 	cpsie i
-#elif defined(CONFIG_ARMV7_M)
+#elif defined(CONFIG_ARMV7_M_ARMV8_M_MAINLINE)
 	/* clear BASEPRI so wfi is awakened by incoming interrupts */
 	eors.n r0, r0
 	msr BASEPRI, r0
 #else
 #error Unknown ARM architecture
-#endif /* CONFIG_ARMV6_M */
+#endif /* CONFIG_ARMV6_M_ARMV8_M_BASELINE */
 
 	wfi
 
@@ -147,22 +151,26 @@ SECTION_FUNC(TEXT, k_cpu_idle)
  *    if this requirement is not met.
  *
  * 2) After waking up from the low-power mode, the interrupt lockout state
- *    must be restored as indicated in the 'imask' input parameter.
+ *    must be restored as indicated in the 'key' input parameter.
  *
  * @return N/A
  *
  * C function prototype:
  *
- * void k_cpu_atomic_idle (unsigned int imask);
+ * void k_cpu_atomic_idle (unsigned int key);
  */
 
 SECTION_FUNC(TEXT, k_cpu_atomic_idle)
-#ifdef CONFIG_KERNEL_EVENT_LOGGER_SLEEP
-	push {lr}
-	bl    _sys_k_event_logger_enter_sleep
-	pop {r1}
-	mov lr, r1
-#endif
+#ifdef CONFIG_TRACING
+	push {r0, lr}
+	bl    z_sys_trace_idle
+#if defined(CONFIG_ARMV6_M_ARMV8_M_BASELINE)
+        pop {r0, r1}
+        mov lr, r1
+#else
+	pop {r0, lr}
+#endif /* CONFIG_ARMV6_M_ARMV8_M_BASELINE */
+#endif /* CONFIG_TRACING */
 
 	/*
 	 * Lock PRIMASK while sleeping: wfe will still get interrupted by
@@ -177,7 +185,7 @@ SECTION_FUNC(TEXT, k_cpu_atomic_idle)
 
 	/* r0: interrupt mask from caller */
 
-#if defined(CONFIG_ARMV6_M)
+#if defined(CONFIG_ARMV6_M_ARMV8_M_BASELINE)
 	/* No BASEPRI, call wfe directly (SEVONPEND set in _CpuIdleInit()) */
 	wfe
 
@@ -186,7 +194,7 @@ SECTION_FUNC(TEXT, k_cpu_atomic_idle)
 	cpsie i
 _irq_disabled:
 
-#elif defined(CONFIG_ARMV7_M)
+#elif defined(CONFIG_ARMV7_M_ARMV8_M_MAINLINE)
 	/* r1: zero, for setting BASEPRI (needs a register) */
 	eors.n r1, r1
 
@@ -199,5 +207,5 @@ _irq_disabled:
 	cpsie i
 #else
 #error Unknown ARM architecture
-#endif /* CONFIG_ARMV6_M  */
+#endif /* CONFIG_ARMV6_M_ARMV8_M_BASELINE */
 	bx lr

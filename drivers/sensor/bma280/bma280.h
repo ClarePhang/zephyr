@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __SENSOR_BMA280_H__
-#define __SENSOR_BMA280_H__
+#ifndef ZEPHYR_DRIVERS_SENSOR_BMA280_BMA280_H_
+#define ZEPHYR_DRIVERS_SENSOR_BMA280_BMA280_H_
 
 #include <device.h>
 #include <misc/util.h>
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <gpio.h>
 
 #define BMA280_I2C_ADDRESS		CONFIG_BMA280_I2C_ADDR
@@ -115,10 +115,10 @@
 
 struct bma280_data {
 	struct device *i2c;
-	int16_t x_sample;
-	int16_t y_sample;
-	int16_t z_sample;
-	int8_t temp_sample;
+	s16_t x_sample;
+	s16_t y_sample;
+	s16_t z_sample;
+	s8_t temp_sample;
 
 #ifdef CONFIG_BMA280_TRIGGER
 	struct device *gpio;
@@ -131,7 +131,8 @@ struct bma280_data {
 	sensor_trigger_handler_t any_motion_handler;
 
 #if defined(CONFIG_BMA280_TRIGGER_OWN_THREAD)
-	char __stack thread_stack[CONFIG_BMA280_THREAD_STACK_SIZE];
+	K_THREAD_STACK_MEMBER(thread_stack, CONFIG_BMA280_THREAD_STACK_SIZE);
+	struct k_thread thread;
 	struct k_sem gpio_sem;
 #elif defined(CONFIG_BMA280_TRIGGER_GLOBAL_THREAD)
 	struct k_work work;
@@ -154,7 +155,4 @@ int bma280_attr_set(struct device *dev,
 int bma280_init_interrupt(struct device *dev);
 #endif
 
-#define SYS_LOG_DOMAIN "BMA280"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-#endif /* __SENSOR_BMA280_H__ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_BMA280_BMA280_H_ */

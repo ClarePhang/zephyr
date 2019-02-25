@@ -55,7 +55,6 @@ SECTION_SUBSEC_FUNC(TEXT, _HandlerModeExit, _IntExit)
 
 /* _IntExit falls through to _ExcExit (they are aliases of each other) */
 
-
 /**
  *
  * @brief Kernel housekeeping when exiting exception handler installed
@@ -73,14 +72,6 @@ SECTION_SUBSEC_FUNC(TEXT, _HandlerModeExit, _ExcExit)
 
     ldr r1, [r0, #_kernel_offset_to_current]
 
-    /*
-     * Non-preemptible thread ? Do not schedule (see explanation of
-     * preempt field in kernel_struct.h).
-     */
-    ldrh r2, [r1, #_thread_offset_to_preempt]
-    cmp r2, #_PREEMPT_THRESHOLD
-    bhi _EXIT_EXC
-
     ldr r0, [r0, _kernel_offset_to_ready_q_cache]
     cmp r0, r1
     beq _EXIT_EXC
@@ -95,4 +86,14 @@ _ExcExitWithGdbStub:
 _EXIT_EXC:
 #endif /* CONFIG_PREEMPT_ENABLED */
 
+#ifdef CONFIG_STACK_SENTINEL
+    push {r0, lr}
+    bl _check_stack_sentinel
+#if defined(CONFIG_ARMV6_M_ARMV8_M_BASELINE)
+    pop {r0, r1}
+    mov lr, r1
+#else
+    pop {r0, lr}
+#endif /* CONFIG_ARMV6_M_ARMV8_M_BASELINE */
+#endif /* CONFIG_STACK_SENTINEL */
     bx lr

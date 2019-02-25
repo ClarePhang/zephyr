@@ -2,15 +2,13 @@
   ******************************************************************************
   * @file    stm32_assert.h
   * @author  MCD Application Team
-  * @version V1.6.0
-  * @date    28-October-2016
   * @brief   STM32 assert template file.
   *          This file should be copied to the application folder and renamed
   *          to stm32_assert.h.
   ******************************************************************************
   * @attention
   *
-  * <h2><center>&copy; COPYRIGHT(c) 2016 STMicroelectronics</center></h2>
+  * <h2><center>&copy; COPYRIGHT(c) 2017 STMicroelectronics</center></h2>
   *
   * Redistribution and use in source and binary forms, with or without modification,
   * are permitted provided that the following conditions are met:
@@ -38,8 +36,8 @@
   */
 
 /* Define to prevent recursive inclusion -------------------------------------*/
-#ifndef __STM32_ASSERT_H
-#define __STM32_ASSERT_H
+#ifndef STM32_ASSERT_H
+#define STM32_ASSERT_H
 
 #ifdef __cplusplus
  extern "C" {
@@ -58,9 +56,9 @@
   *         If expr is true, it returns no value.
   * @retval None
   */
-  #define assert_param(expr) ((expr) ? (void)0U : assert_failed((uint8_t *)__FILE__, __LINE__))
+  #define assert_param(expr) ((expr) ? (void)0U : assert_failed((char *)__FILE__, __LINE__))
 /* Exported functions ------------------------------------------------------- */
-  void assert_failed(uint8_t* file, uint32_t line);
+  void assert_failed(char *file, uint32_t line);
 #else
   #define assert_param(expr) ((void)0U)
 #endif /* USE_FULL_ASSERT */
@@ -69,7 +67,7 @@
 }
 #endif
 
-#endif /* __STM32_ASSERT_H */
+#endif /* STM32_ASSERT_H */
 
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

@@ -18,8 +18,8 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  */
-#ifndef _HTTP_PARSER_H_
-#define _HTTP_PARSER_H_
+#ifndef ZEPHYR_INCLUDE_NET_HTTP_PARSER_H_
+#define ZEPHYR_INCLUDE_NET_HTTP_PARSER_H_
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -34,18 +34,20 @@ extern "C" {
 	(!defined(_MSC_VER) || _MSC_VER < 1600) && !defined(__WINE__)
 #include <BaseTsd.h>
 #include <stddef.h>
-typedef __int8 int8_t;
-typedef unsigned __int8 uint8_t;
-typedef __int16 int16_t;
-typedef unsigned __int16 uint16_t;
-typedef __int32 int32_t;
-typedef unsigned __int32 uint32_t;
-typedef __int64 int64_t;
-typedef unsigned __int64 uint64_t;
+typedef __int8 s8_t;
+typedef unsigned __int8 u8_t;
+typedef __int16 s16_t;
+typedef unsigned __int16 u16_t;
+typedef __int32 s32_t;
+typedef unsigned __int32 u32_t;
+typedef __int64 s64_t;
+typedef unsigned __int64 u64_t;
 #else
-#include <stdint.h>
+#include <zephyr/types.h>
 #include <stddef.h>
 #endif
+#include <net/http_parser_state.h>
+#include <net/http_parser_url.h>
 
 /* Maximium header size allowed. If the macro is not defined
  * before including this header then the default is used. To
@@ -186,8 +188,8 @@ struct http_parser {
 	unsigned int index : 7;        /* index into current matcher */
 	unsigned int lenient_http_headers : 1;
 
-	uint32_t nread;          /* # bytes read in various scenarios */
-	uint64_t content_length; /* # bytes in body (0 if no Content-Length
+	u32_t nread;          /* # bytes read in various scenarios */
+	u64_t content_length; /* # bytes in body (0 if no Content-Length
 				  * header)
 				  */
 	/** READ-ONLY **/
@@ -209,6 +211,11 @@ struct http_parser {
 	void *data; /* A pointer to get hook to the "connection" or "socket"
 		     * object
 		     */
+
+	/* Remote socket address of http connection, where parser can initiate
+	 * replies if necessary.
+	 */
+	const struct sockaddr *addr;
 };
 
 
@@ -226,38 +233,6 @@ struct http_parser_settings {
 	 */
 	http_cb      on_chunk_header;
 	http_cb      on_chunk_complete;
-};
-
-
-enum http_parser_url_fields {
-	  UF_SCHEMA           = 0
-	, UF_HOST             = 1
-	, UF_PORT             = 2
-	, UF_PATH             = 3
-	, UF_QUERY            = 4
-	, UF_FRAGMENT         = 5
-	, UF_USERINFO         = 6
-	, UF_MAX              = 7
-};
-
-
-/* Result structure for http_parser_parse_url().
- *
- * Callers should index into field_data[] with UF_* values iff field_set
- * has the relevant (1 << UF_*) bit set. As a courtesy to clients (and
- * because we probably have padding left over), we convert any port to
- * a uint16_t.
- */
-struct http_parser_url {
-	uint16_t field_set;           /* Bitmask of (1 << UF_*) values */
-	uint16_t port;                /* Converted UF_PORT string */
-
-	struct {
-		uint16_t off;               /* Offset into buffer in which field
-					     * starts
-					     */
-		uint16_t len;               /* Length of run in buffer */
-	} field_data[UF_MAX];
 };
 
 
@@ -285,9 +260,9 @@ void http_parser_settings_init(struct http_parser_settings *settings);
  * `parser->http_errno` on error.
  */
 
-int http_parser_execute(struct http_parser *parser,
-			const struct http_parser_settings *settings,
-			const char *data, size_t len);
+size_t http_parser_execute(struct http_parser *parser,
+			   const struct http_parser_settings *settings,
+			   const char *data, size_t len);
 
 /* If http_should_keep_alive() in the on_headers_complete or
  * on_message_complete callback returns 0, then this should be
@@ -305,13 +280,6 @@ const char *http_errno_name(enum http_errno err);
 
 /* Return a string description of the given error */
 const char *http_errno_description(enum http_errno err);
-
-/* Initialize all http_parser_url members to 0 */
-void http_parser_url_init(struct http_parser_url *u);
-
-/* Parse a URL; return nonzero on failure */
-int http_parser_parse_url(const char *buf, size_t buflen,
-			  int is_connect, struct http_parser_url *u);
 
 /* Pause or un-pause the parser; a nonzero value pauses */
 void http_parser_pause(struct http_parser *parser, int paused);

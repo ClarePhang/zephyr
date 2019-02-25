@@ -6,8 +6,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef _SENSOR_ISL29035_H_
-#define _SENSOR_ISL29035_H_
+#ifndef ZEPHYR_DRIVERS_SENSOR_ISL29035_ISL29035_H_
+#define ZEPHYR_DRIVERS_SENSOR_ISL29035_ISL29035_H_
 
 #include <device.h>
 #include <kernel.h>
@@ -112,7 +112,7 @@
 
 struct isl29035_driver_data {
 	struct device *i2c;
-	uint16_t data_sample;
+	u16_t data_sample;
 
 #if CONFIG_ISL29035_TRIGGER
 	struct device *gpio;
@@ -122,7 +122,8 @@ struct isl29035_driver_data {
 	sensor_trigger_handler_t th_handler;
 
 #if defined(CONFIG_ISL29035_TRIGGER_OWN_THREAD)
-	char __stack thread_stack[CONFIG_ISL29035_THREAD_STACK_SIZE];
+	K_THREAD_STACK_MEMBER(thread_stack, CONFIG_ISL29035_THREAD_STACK_SIZE);
+	struct k_thread thread;
 	struct k_sem gpio_sem;
 #elif defined(CONFIG_ISL29035_TRIGGER_GLOBAL_THREAD)
 	struct k_work work;
@@ -145,7 +146,4 @@ int isl29035_trigger_set(struct device *dev,
 int isl29035_init_interrupt(struct device *dev);
 #endif
 
-#define SYS_LOG_DOMAIN "ISL29035"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
-#endif /* _SENSOR_ISL29035_H_ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_ISL29035_ISL29035_H_ */

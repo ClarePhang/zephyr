@@ -26,7 +26,7 @@
  * kernel invokes _timer_idle_enter() to program the down counter in one-shot
  * mode to trigger an interrupt in N ticks.  When the timer expires or when
  * another interrupt is detected, the kernel's interrupt stub invokes
- * _timer_idle_exit() to leave the tickless idle state.
+ * z_clock_idle_exit() to leave the tickless idle state.
  *
  * @internal
  * Factors that increase the driver's complexity:
@@ -53,10 +53,10 @@
  * previous factor.
  *
  * 5. Tickless idle may be prematurely aborted due to a non-timer interrupt.
- * Its handler may make a task or fiber ready to run, so any elapsed ticks
+ * Its handler may make a thread ready to run, so any elapsed ticks
  * must be accounted for and the timer must also expire at the end of the
  * next logical tick so _timer_int_handler() can put it back in periodic mode.
- * This can only be distinguished from the previous factor by the executiion of
+ * This can only be distinguished from the previous factor by the execution of
  * _timer_int_handler().
  *
  * 6. Tickless idle may end naturally.  The down counter should be zero in
@@ -67,13 +67,15 @@
 
 #include <kernel.h>
 #include <toolchain.h>
-#include <sections.h>
+#include <linker/sections.h>
 #include <sys_clock.h>
 #include <drivers/system_timer.h>
 #include <arch/x86/irq_controller.h>
 #include <power.h>
 #include <device.h>
-#include <board.h>
+#include <kernel_structs.h>
+
+#include "legacy_api.h"
 
 /* Local APIC Timer Bits */
 
@@ -95,21 +97,21 @@
  */
 
 #if defined(CONFIG_LOAPIC)
-#define _REG_TIMER ((volatile uint32_t *) \
+#define _REG_TIMER ((volatile u32_t *) \
 			(CONFIG_LOAPIC_BASE_ADDRESS + LOAPIC_TIMER))
-#define _REG_TIMER_ICR ((volatile uint32_t *) \
+#define _REG_TIMER_ICR ((volatile u32_t *) \
 			(CONFIG_LOAPIC_BASE_ADDRESS + LOAPIC_TIMER_ICR))
-#define _REG_TIMER_CCR ((volatile uint32_t *) \
+#define _REG_TIMER_CCR ((volatile u32_t *) \
 			(CONFIG_LOAPIC_BASE_ADDRESS + LOAPIC_TIMER_CCR))
-#define _REG_TIMER_CFG ((volatile uint32_t *) \
+#define _REG_TIMER_CFG ((volatile u32_t *) \
 			(CONFIG_LOAPIC_BASE_ADDRESS + LOAPIC_TIMER_CONFIG))
 #define TIMER_IRQ		CONFIG_LOAPIC_TIMER_IRQ
 #define TIMER_IRQ_PRIORITY	CONFIG_LOAPIC_TIMER_IRQ_PRIORITY
 #elif defined(CONFIG_MVIC)
 
-#define _REG_TIMER	((volatile uint32_t *)MVIC_LVTTIMER)
-#define _REG_TIMER_ICR	((volatile uint32_t *)MVIC_ICR)
-#define _REG_TIMER_CCR	((volatile uint32_t *)MVIC_CCR)
+#define _REG_TIMER	((volatile u32_t *)MVIC_LVTTIMER)
+#define _REG_TIMER_ICR	((volatile u32_t *)MVIC_ICR)
+#define _REG_TIMER_CCR	((volatile u32_t *)MVIC_CCR)
 /* MVIC has no TIMER_CFG register */
 #define TIMER_IRQ		CONFIG_MVIC_TIMER_IRQ
 #define TIMER_IRQ_PRIORITY	-1
@@ -123,28 +125,36 @@
 	do {/* nothing */              \
 	} while (0)
 #endif /* !CONFIG_TICKLESS_IDLE */
-#if defined(CONFIG_TICKLESS_IDLE)
-extern int32_t _sys_idle_elapsed_ticks;
-#endif /* CONFIG_TICKLESS_IDLE */
+
+static s32_t _sys_idle_elapsed_ticks = 1;
 
 /* computed counter 0 initial count value */
-static uint32_t __noinit cycles_per_tick;
+static u32_t __noinit cycles_per_tick;
 
 #if defined(CONFIG_TICKLESS_IDLE)
-static uint32_t programmed_cycles;
-static uint32_t programmed_full_ticks;
-static uint32_t __noinit max_system_ticks;
-static uint32_t __noinit cycles_per_max_ticks;
+static u32_t programmed_cycles;
+static u32_t programmed_full_ticks;
+static u32_t __noinit max_system_ticks;
+static u32_t __noinit cycles_per_max_ticks;
+#ifndef CONFIG_TICKLESS_KERNEL
 static bool timer_known_to_have_expired;
 static unsigned char timer_mode = TIMER_MODE_PERIODIC;
+#endif
 #endif /* CONFIG_TICKLESS_IDLE */
 
 #ifdef CONFIG_DEVICE_POWER_MANAGEMENT
-static uint32_t loapic_timer_device_power_state;
-static uint32_t reg_timer_save;
+static u32_t loapic_timer_device_power_state;
+static u32_t reg_timer_save;
 #ifndef CONFIG_MVIC
-static uint32_t reg_timer_cfg_save;
+static u32_t reg_timer_cfg_save;
 #endif
+#endif
+
+#ifdef CONFIG_JAILHOUSE_X2APIC
+void _jailhouse_eoi(void)
+{
+	write_x2apic(LOAPIC_EOI >> 4, 0);
+}
 #endif
 
 /**
@@ -157,7 +167,12 @@ static uint32_t reg_timer_cfg_save;
  */
 static inline void periodic_mode_set(void)
 {
+#ifndef CONFIG_JAILHOUSE_X2APIC
 	*_REG_TIMER |= LOAPIC_TIMER_PERIODIC;
+#else
+	write_x2apic(LOAPIC_TIMER >> 4,
+		     read_x2apic(LOAPIC_TIMER >> 4) | LOAPIC_TIMER_PERIODIC);
+#endif
 }
 
 
@@ -171,9 +186,13 @@ static inline void periodic_mode_set(void)
  * @param count Count from which timer is to count down
  * @return N/A
  */
-static inline void initial_count_register_set(uint32_t count)
+static inline void initial_count_register_set(u32_t count)
 {
+#ifndef CONFIG_JAILHOUSE_X2APIC
 	*_REG_TIMER_ICR = count;
+#else
+	write_x2apic(LOAPIC_TIMER_ICR >> 4, count);
+#endif
 }
 
 #if defined(CONFIG_TICKLESS_IDLE)
@@ -204,10 +223,17 @@ static inline void one_shot_mode_set(void)
 #ifndef CONFIG_MVIC
 static inline void divide_configuration_register_set(void)
 {
+#ifndef CONFIG_JAILHOUSE_X2APIC
 	*_REG_TIMER_CFG = (*_REG_TIMER_CFG & ~0xf) | LOAPIC_TIMER_DIVBY_1;
+#else
+	write_x2apic(LOAPIC_TIMER_CONFIG >> 4,
+		     (read_x2apic(LOAPIC_TIMER_CONFIG >> 4) & ~0xf)
+		     | LOAPIC_TIMER_DIVBY_1);
+#endif
 }
 #endif
 
+#if defined(CONFIG_TICKLESS_KERNEL) || defined(CONFIG_TICKLESS_IDLE)
 /**
  *
  * @brief Get the value from the current count register
@@ -218,10 +244,15 @@ static inline void divide_configuration_register_set(void)
  *
  * @return N/A
  */
-static inline uint32_t current_count_register_get(void)
+static inline u32_t current_count_register_get(void)
 {
+#ifndef CONFIG_JAILHOUSE_X2APIC
 	return *_REG_TIMER_CCR;
+#else
+	return read_x2apic(LOAPIC_TIMER_CCR >> 4);
+#endif
 }
+#endif
 
 #if defined(CONFIG_TICKLESS_IDLE)
 /**
@@ -232,33 +263,88 @@ static inline uint32_t current_count_register_get(void)
  *
  * @return N/A
  */
-static inline uint32_t initial_count_register_get(void)
+static inline u32_t initial_count_register_get(void)
 {
 	return *_REG_TIMER_ICR;
 }
 #endif /* CONFIG_TICKLESS_IDLE */
 
+#ifdef CONFIG_TICKLESS_KERNEL
+static inline void program_max_cycles(void)
+{
+	programmed_cycles = cycles_per_max_ticks;
+	initial_count_register_set(programmed_cycles);
+}
+#endif
+
 void _timer_int_handler(void *unused /* parameter is not used */
 				 )
 {
+#ifdef CONFIG_EXECUTION_BENCHMARKING
+	__asm__ __volatile__ (
+		"pushl %eax\n\t"
+		"pushl %edx\n\t"
+		"rdtsc\n\t"
+		"mov %eax, __start_tick_time\n\t"
+		"mov %edx, __start_tick_time+4\n\t"
+		"pop %edx\n\t"
+		"pop %eax\n\t");
+#endif
 	ARG_UNUSED(unused);
 
+#if defined(CONFIG_TICKLESS_KERNEL)
+	if (!programmed_full_ticks) {
+		if (_sys_clock_always_on) {
+			z_tick_set(z_clock_uptime());
+			program_max_cycles();
+		}
+		return;
+	}
+
+	u32_t cycles = current_count_register_get();
+
+	if ((cycles > 0) && (cycles < programmed_cycles)) {
+		/* stale interrupt */
+		return;
+	}
+
+	_sys_idle_elapsed_ticks = programmed_full_ticks;
+
+	/*
+	 * Clear programmed ticks before announcing elapsed time so
+	 * that recursive calls to _update_elapsed_time() will not
+	 * announce already consumed elapsed time
+	 */
+	programmed_full_ticks = 0U;
+
+	z_clock_announce(_sys_idle_elapsed_ticks);
+
+	/* z_clock_announce() could cause new programming */
+	if (!programmed_full_ticks && _sys_clock_always_on) {
+		z_tick_set(z_clock_uptime());
+		program_max_cycles();
+	}
+#else
 #ifdef CONFIG_TICKLESS_IDLE
 	if (timer_mode == TIMER_MODE_ONE_SHOT) {
 		if (!timer_known_to_have_expired) {
-			uint32_t  cycles;
+			u32_t  cycles;
 
 			/*
-			 * The timer fired unexpectedly. This is due to one of two cases:
+			 * The timer fired unexpectedly. This is due
+			 * to one of two cases:
 			 *   1. Entering tickless idle straddled a tick.
 			 *   2. Leaving tickless idle straddled the final tick.
-			 * Due to the timer reprogramming in _timer_idle_exit(), case #2
-			 * can be handled as a fall-through.
+			 * Due to the timer reprogramming in
+			 * z_clock_idle_exit(), case #2 can be handled
+			 * as a fall-through.
 			 *
-			 * NOTE: Although the cycle count is supposed to stop decrementing
-			 * once it hits zero in one-shot mode, not all targets implement
-			 * this properly (and continue to decrement).  Thus, we have to
-			 * perform a second comparison to check for wrap-around.
+			 * NOTE: Although the cycle count is supposed
+			 * to stop decrementing once it hits zero in
+			 * one-shot mode, not all targets implement
+			 * this properly (and continue to decrement).
+			 * Thus, we have to perform a second
+			 * comparison to check for wrap-around.
 			 */
 
 			cycles = current_count_register_get();
@@ -269,18 +355,92 @@ void _timer_int_handler(void *unused /* parameter is not used */
 		}
 
 		/* Return the timer to periodic mode */
-		initial_count_register_set(cycles_per_tick - 1);
 		periodic_mode_set();
+		initial_count_register_set(cycles_per_tick - 1);
 		timer_known_to_have_expired = false;
 		timer_mode = TIMER_MODE_PERIODIC;
 	}
 
-	_sys_clock_final_tick_announce();
+	_sys_idle_elapsed_ticks = 1;
+	z_clock_announce(_sys_idle_elapsed_ticks);
 #else
-	_sys_clock_tick_announce();
+	z_clock_announce(_sys_idle_elapsed_ticks);
 #endif /*CONFIG_TICKLESS_IDLE*/
-
+#endif
+#ifdef CONFIG_EXECUTION_BENCHMARKING
+	__asm__ __volatile__ (
+		"pushl %eax\n\t"
+		"pushl %edx\n\t"
+		"rdtsc\n\t"
+		"mov %eax, __end_tick_time\n\t"
+		"mov %edx, __end_tick_time+4\n\t"
+		"pop %edx\n\t"
+		"pop %eax\n\t");
+#endif /* CONFIG_EXECUTION_BENCHMARKING */
 }
+
+#ifdef CONFIG_TICKLESS_KERNEL
+u32_t _get_program_time(void)
+{
+	return programmed_full_ticks;
+}
+
+u32_t _get_remaining_program_time(void)
+{
+	if (programmed_full_ticks == 0) {
+		return 0;
+	}
+
+	return current_count_register_get() / cycles_per_tick;
+}
+
+u32_t _get_elapsed_program_time(void)
+{
+	if (programmed_full_ticks == 0) {
+		return 0;
+	}
+
+	return programmed_full_ticks -
+	    (current_count_register_get() / cycles_per_tick);
+}
+
+void _set_time(u32_t time)
+{
+	if (!time) {
+		programmed_full_ticks = 0U;
+		return;
+	}
+
+	programmed_full_ticks =
+	    time > max_system_ticks ? max_system_ticks : time;
+
+	z_tick_set(z_clock_uptime());
+
+	programmed_cycles = programmed_full_ticks * cycles_per_tick;
+	initial_count_register_set(programmed_cycles);
+}
+
+void _enable_sys_clock(void)
+{
+	if (!programmed_full_ticks) {
+		program_max_cycles();
+	}
+}
+
+u64_t z_clock_uptime(void)
+{
+	u64_t elapsed;
+
+	elapsed = z_tick_get();
+	if (programmed_cycles) {
+		elapsed +=
+		    (programmed_cycles -
+		     current_count_register_get()) / cycles_per_tick;
+	}
+
+	return elapsed;
+}
+#endif
 
 #if defined(CONFIG_TICKLESS_IDLE)
 /**
@@ -315,14 +475,26 @@ static void tickless_idle_init(void)
  * Re-program the timer to enter into the idle state for the given number of
  * ticks. It is placed into one shot mode where it will fire in the number of
  * ticks supplied or the maximum number of ticks that can be programmed into
- * hardware. A value of -1 means inifinite number of ticks.
+ * hardware. A value of -1 means infinite number of ticks.
  *
  * @return N/A
  */
-void _timer_idle_enter(int32_t ticks /* system ticks */
+void _timer_idle_enter(s32_t ticks /* system ticks */
 				)
 {
-	uint32_t  cycles;
+#ifdef CONFIG_TICKLESS_KERNEL
+	if (ticks != K_FOREVER) {
+		/* Need to reprogram only if current program is smaller */
+		if (ticks > programmed_full_ticks) {
+			_set_time(ticks);
+		}
+	} else {
+		programmed_full_ticks = 0U;
+		programmed_cycles = 0U;
+		initial_count_register_set(0); /* 0 disables timer */
+	}
+#else
+	u32_t  cycles;
 
 	/*
 	 * Although interrupts are disabled, the LOAPIC timer is still counting
@@ -354,9 +526,10 @@ void _timer_idle_enter(int32_t ticks /* system ticks */
 	}
 
 	/* Set timer to one-shot mode */
-	initial_count_register_set(programmed_cycles);
 	one_shot_mode_set();
+	initial_count_register_set(programmed_cycles);
 	timer_mode = TIMER_MODE_ONE_SHOT;
+#endif
 }
 
 /**
@@ -372,10 +545,15 @@ void _timer_idle_enter(int32_t ticks /* system ticks */
  *
  * @return N/A
  */
-void _timer_idle_exit(void)
+void z_clock_idle_exit(void)
 {
-	uint32_t remaining_cycles;
-	uint32_t remaining_full_ticks;
+#ifdef CONFIG_TICKLESS_KERNEL
+	if (!programmed_full_ticks && _sys_clock_always_on) {
+		program_max_cycles();
+	}
+#else
+	u32_t remaining_cycles;
+	u32_t remaining_full_ticks;
 
 	/*
 	 * Interrupts are locked and idling has ceased. The cause of the cessation
@@ -411,7 +589,7 @@ void _timer_idle_exit(void)
 		 * (The timer ISR reprograms the timer for the next tick.)
 		 */
 
-		_sys_clock_tick_announce();
+		z_clock_announce(_sys_idle_elapsed_ticks);
 
 		timer_known_to_have_expired = true;
 
@@ -424,12 +602,12 @@ void _timer_idle_exit(void)
 	 * Either a non-timer interrupt occurred, or we straddled a tick when
 	 * entering tickless idle. It is impossible to determine which occurred
 	 * at this point. Regardless of the cause, ensure that the timer will
-	 * expire at the end of the next tick in case the ISR makes any tasks
-	 * and/or fibers ready to run.
+	 * expire at the end of the next tick in case the ISR makes any threads
+	 * ready to run.
 	 *
 	 * NOTE #1: In the case of a straddled tick, the '_sys_idle_elapsed_ticks'
 	 * calculation below may result in either 0 or 1. If 1, then this may
-	 * result in a harmless extra call to _sys_clock_tick_announce().
+	 * result in a harmless extra call to z_clock_announce().
 	 *
 	 * NOTE #2: In the case of a straddled tick, it is assumed that when the
 	 * timer is reprogrammed, it will be reprogrammed with a cycle count
@@ -442,7 +620,7 @@ void _timer_idle_exit(void)
 	_sys_idle_elapsed_ticks = programmed_full_ticks - remaining_full_ticks;
 
 	if (_sys_idle_elapsed_ticks > 0) {
-		_sys_clock_tick_announce();
+		z_clock_announce(_sys_idle_elapsed_ticks);
 	}
 
 	if (remaining_full_ticks > 0) {
@@ -455,6 +633,7 @@ void _timer_idle_exit(void)
 
 		initial_count_register_set(programmed_cycles);
 	}
+#endif
 }
 #endif /* CONFIG_TICKLESS_IDLE */
 
@@ -467,22 +646,26 @@ void _timer_idle_exit(void)
  *
  * @return 0
  */
-int _sys_clock_driver_init(struct device *device)
+int z_clock_driver_init(struct device *device)
 {
 	ARG_UNUSED(device);
 
 	/* determine the timer counter value (in timer clock cycles/system tick)
 	 */
 
-	cycles_per_tick = sys_clock_hw_cycles_per_tick;
+	cycles_per_tick = sys_clock_hw_cycles_per_tick();
 
 	tickless_idle_init();
 
 #ifndef CONFIG_MVIC
 	divide_configuration_register_set();
 #endif
-	initial_count_register_set(cycles_per_tick - 1);
+#ifdef CONFIG_TICKLESS_KERNEL
+	one_shot_mode_set();
+#else
 	periodic_mode_set();
+#endif
+	initial_count_register_set(cycles_per_tick - 1);
 #ifdef CONFIG_DEVICE_POWER_MANAGEMENT
 	loapic_timer_device_power_state = DEVICE_PM_ACTIVE_STATE;
 #endif
@@ -553,17 +736,17 @@ static int sys_clock_resume(struct device *dev)
 * Implements the driver control management functionality
 * the *context may include IN data or/and OUT data
 */
-int sys_clock_device_ctrl(struct device *port, uint32_t ctrl_command,
+int z_clock_device_ctrl(struct device *port, u32_t ctrl_command,
 			  void *context)
 {
 	if (ctrl_command == DEVICE_PM_SET_POWER_STATE) {
-		if (*((uint32_t *)context) == DEVICE_PM_SUSPEND_STATE) {
+		if (*((u32_t *)context) == DEVICE_PM_SUSPEND_STATE) {
 			return sys_clock_suspend(port);
-		} else if (*((uint32_t *)context) == DEVICE_PM_ACTIVE_STATE) {
+		} else if (*((u32_t *)context) == DEVICE_PM_ACTIVE_STATE) {
 			return sys_clock_resume(port);
 		}
 	} else if (ctrl_command == DEVICE_PM_GET_POWER_STATE) {
-		*((uint32_t *)context) = loapic_timer_device_power_state;
+		*((u32_t *)context) = loapic_timer_device_power_state;
 		return 0;
 	}
 
@@ -581,15 +764,15 @@ int sys_clock_device_ctrl(struct device *port, uint32_t ctrl_command,
  *
  * @return up counter of elapsed clock cycles
  */
-uint32_t _timer_cycle_get_32(void)
+u32_t _timer_cycle_get_32(void)
 {
 #if CONFIG_TSC_CYCLES_PER_SEC != 0
-	uint64_t tsc;
+	u64_t tsc;
 
 	/* 64-bit math to avoid overflows */
-	tsc = _tsc_read() * (uint64_t)sys_clock_hw_cycles_per_sec /
-		(uint64_t) CONFIG_TSC_CYCLES_PER_SEC;
-	return (uint32_t)tsc;
+	tsc = _tsc_read() * (u64_t)sys_clock_hw_cycles_per_sec() /
+		(u64_t) CONFIG_TSC_CYCLES_PER_SEC;
+	return (u32_t)tsc;
 #else
 	/* TSC runs same as the bus speed, nothing to do but return the TSC
 	 * value

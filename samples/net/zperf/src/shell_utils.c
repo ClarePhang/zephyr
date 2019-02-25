@@ -14,19 +14,19 @@
 
 #include "shell_utils.h"
 
-const uint32_t TIME_US[] = { 60 * 1000 * 1000, 1000 * 1000, 1000, 0 };
+const u32_t TIME_US[] = { 60 * 1000 * 1000, 1000 * 1000, 1000, 0 };
 const char *TIME_US_UNIT[] = { "m", "s", "ms", "us" };
-const uint32_t KBPS[] = { 1024, 0 };
+const u32_t KBPS[] = { 1024, 0 };
 const char *KBPS_UNIT[] = { "Mbps", "Kbps" };
-const uint32_t K[] = { 1024 * 1024, 1024, 0 };
+const u32_t K[] = { 1024 * 1024, 1024, 0 };
 const char *K_UNIT[] = { "M", "K", "" };
 
-void print_number(uint32_t value, const uint32_t *divisor,
-	const char **units)
+void print_number(const struct shell *shell, u32_t value,
+		  const u32_t *divisor, const char **units)
 {
 	const char **unit;
-	const uint32_t *div;
-	uint32_t dec, radix;
+	const u32_t *div;
+	u32_t dec, radix;
 
 	unit = units;
 	div = divisor;
@@ -39,17 +39,18 @@ void print_number(uint32_t value, const uint32_t *divisor,
 	if (*div != 0) {
 		radix = value / *div;
 		dec = (value % *div) * 100 / *div;
-		printk("%u.%s%u %s", radix, (dec < 10) ? "0" : "", dec, *unit);
+		shell_fprintf(shell, SHELL_NORMAL, "%u.%s%u %s", radix,
+			      (dec < 10) ? "0" : "", dec, *unit);
 	} else {
-		printk("%u %s", value, *unit);
+		shell_fprintf(shell, SHELL_NORMAL, "%u %s", value, *unit);
 	}
 }
 
-long parse_number(const char *string, const uint32_t *divisor,
+long parse_number(const char *string, const u32_t *divisor,
 		const char **units)
 {
 	const char **unit;
-	const uint32_t *div;
+	const u32_t *div;
 	char *suffix;
 	long dec;
 	int cmp;

@@ -1,11 +1,9 @@
-# Kconfig - STM32 MINI A15 board configuration
-#
 # Copyright (c) 2016 Cadence Design Systems, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-if SIMULATOR_XTENSA
+if BOARD_XT_SIM
 
 config BOARD
-	default xt-sim
+	default "xt-sim"
 
-endif # SIMULATOR_XTENSA
+endif # BOARD_SIMULATOR_XTENSA

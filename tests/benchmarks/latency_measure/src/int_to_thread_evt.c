@@ -5,7 +5,9 @@
  */
 
 /**
- * @file measure time from ISR to a rescheduled thread
+ * @file
+ *
+ * @brief measure time from ISR to a rescheduled thread
  *
  * This file contains test that measures time to switch from an interrupt
  * handler to executing a thread after rescheduling. In other words, execution
@@ -21,11 +23,12 @@
 
 #include <arch/cpu.h>
 
-static uint32_t timestamp;
-
+static u32_t timestamp;
+static struct k_work work;
 
 K_SEM_DEFINE(INTSEMA, 0, 1);
-K_ALERT_DEFINE(EVENT0, NULL, 10);
+K_SEM_DEFINE(WORKSEMA, 0, 1);
+
 
 /**
  *
@@ -39,8 +42,15 @@ static void latency_test_isr(void *unused)
 {
 	ARG_UNUSED(unused);
 
-	k_alert_send(&EVENT0);
+	k_work_submit(&work);
 	timestamp = TIME_STAMP_DELTA_GET(0);
+}
+
+static void worker(struct k_work *item)
+{
+	(void)item;
+	timestamp = TIME_STAMP_DELTA_GET(timestamp);
+	k_sem_give(&WORKSEMA);
 }
 
 /**
@@ -75,10 +85,12 @@ int int_to_thread_evt(void)
 {
 	PRINT_FORMAT(" 2 - Measure time from ISR to executing a different thread"
 		     " (rescheduled)");
+	k_work_init(&work, worker);
+
 	TICK_SYNCH();
 	k_sem_give(&INTSEMA);
-	k_alert_recv(&EVENT0, K_FOREVER);
-	timestamp = TIME_STAMP_DELTA_GET(timestamp);
+	k_sem_take(&WORKSEMA, K_FOREVER);
+
 	PRINT_FORMAT(" switch time is %u tcs = %u nsec",
 		     timestamp, SYS_CLOCK_HW_CYCLES_TO_NS(timestamp));
 	return 0;

@@ -18,7 +18,7 @@
 static struct drv_data data;
 static int cb_cnt;
 
-static int pin_num(uint32_t pins)
+static int pin_num(u32_t pins)
 {
 	int ret = 0;
 
@@ -29,10 +29,10 @@ static int pin_num(uint32_t pins)
 }
 
 static void callback(struct device *dev,
-		     struct gpio_callback *gpio_cb, uint32_t pins)
+		     struct gpio_callback *gpio_cb, u32_t pins)
 {
 	/*= checkpoint: pins should be marked with correct pin number bit =*/
-	assert_true(pin_num(pins) == PIN_IN, NULL);
+	zassert_true(pin_num(pins) == PIN_IN, NULL);
 	TC_PRINT("callback triggered: %d\n", ++cb_cnt);
 	if (cb_cnt >= MAX_INT_CNT) {
 		struct drv_data *drv_data = CONTAINER_OF(gpio_cb,
@@ -46,6 +46,7 @@ static void callback(struct device *dev,
 static int test_callback(int mode)
 {
 	struct device *dev = device_get_binding(DEV_NAME);
+	struct drv_data *drv_data = &data;
 
 	gpio_pin_disable_callback(dev, PIN_IN);
 	gpio_pin_disable_callback(dev, PIN_OUT);
@@ -67,8 +68,6 @@ static int test_callback(int mode)
 		TC_ERROR("config PIN_IN fail");
 		goto err_exit;
 	}
-
-	struct drv_data *drv_data = &data;
 
 	drv_data->mode = mode;
 	gpio_init_callback(&drv_data->gpio_cb, callback, BIT(PIN_IN));
@@ -94,7 +93,7 @@ static int test_callback(int mode)
 		goto pass_exit;
 	}
 
-	if ((mode & GPIO_INT_LEVEL) == GPIO_INT_LEVEL) {
+	if ((mode & GPIO_INT_EDGE) == GPIO_INT_LEVEL) {
 		if (cb_cnt != MAX_INT_CNT) {
 			TC_ERROR("not trigger callback correctly\n");
 			goto err_exit;
@@ -113,28 +112,28 @@ err_exit:
 /* export test cases */
 void test_gpio_callback_edge_high(void)
 {
-	assert_true(
+	zassert_true(
 		test_callback(GPIO_INT_EDGE | GPIO_INT_ACTIVE_HIGH) == TC_PASS,
 		NULL);
 }
 
 void test_gpio_callback_edge_low(void)
 {
-	assert_true(
+	zassert_true(
 		test_callback(GPIO_INT_EDGE | GPIO_INT_ACTIVE_LOW) == TC_PASS,
 		NULL);
 }
 
 void test_gpio_callback_level_high(void)
 {
-	assert_true(
+	zassert_true(
 		test_callback(GPIO_INT_LEVEL | GPIO_INT_ACTIVE_HIGH) == TC_PASS,
 		NULL);
 }
 
 void test_gpio_callback_level_low(void)
 {
-	assert_true(
+	zassert_true(
 		test_callback(GPIO_INT_LEVEL | GPIO_INT_ACTIVE_LOW) == TC_PASS,
 		NULL);
 }

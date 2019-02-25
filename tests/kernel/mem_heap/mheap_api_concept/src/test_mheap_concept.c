@@ -4,20 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/**
- * @addtogroup t_mheap
- * @{
- * @defgroup t_mheap_concept test_mheap_concept
- * @brief TestPurpose: verify memory pool concepts.
- * @details All TESTPOINTs extracted from kernel documentation.
- * https://www.zephyrproject.org/doc/kernel/memory/heap.html#concepts
- *
- * TESTPOINTs cover testable kernel behaviours that preserve across internal
- * implementation change or kernel version change.
- * As a black-box test, TESTPOINTs do not cover internal operations.
- * @}
- */
-
 #include <ztest.h>
 #include "test_mheap.h"
 
@@ -25,6 +11,20 @@
 #define TEST_SIZE_0 0
 
 /*test cases*/
+
+/**
+ * @brief The test validates k_calloc() API.
+ *
+ * @ingroup kernel_heap_tests
+ *
+ * @see k_malloc(), k_free()
+ *
+ * @details The 8 blocks of memory of size 16 bytes are allocated
+ * by k_calloc() API. When allocated using k_calloc() the memory buffers
+ * have to be zeroed. Check is done, if the blocks are memset to 0 and
+ * read/write is allowed. The test is then teared up by freeing all the
+ * blocks allocated.
+ */
 void test_mheap_malloc_align4(void)
 {
 	void *block[BLK_NUM_MAX];
@@ -35,8 +35,8 @@ void test_mheap_malloc_align4(void)
 	 */
 	for (int i = 0; i < BLK_NUM_MAX; i++) {
 		block[i] = k_malloc(i);
-		assert_not_null(block[i], NULL);
-		assert_false((int)block[i]%4, NULL);
+		zassert_not_null(block[i], NULL);
+		zassert_false((int)block[i] % 4, NULL);
 	}
 
 	/* test case tear down*/
@@ -45,6 +45,20 @@ void test_mheap_malloc_align4(void)
 	}
 }
 
+/**
+ * @brief The test case to ensure heap minimum block size is 64 bytes.
+ *
+ * @ingroup kernel_heap_tests
+ *
+ * @see k_malloc(), k_free()
+ *
+ * @details Heap pool's minimum block size is 64 bytes. The test case tries
+ * to ensure it by allocating blocks lesser than minimum block size.
+ * The test allocates 8 blocks of size 0. The algorithm has to allocate 64
+ * bytes of blocks, this is ensured by allocating one more block of max size
+ * which results in failure. Finally all the blocks are freed and added back
+ * to heap memory pool.
+ */
 void test_mheap_min_block_size(void)
 {
 	void *block[BLK_NUM_MAX], *block_fail;
@@ -61,11 +75,11 @@ void test_mheap_min_block_size(void)
 	 */
 	for (int i = 0; i < BLK_NUM_MAX; i++) {
 		block[i] = k_malloc(TEST_SIZE_0);
-		assert_not_null(block[i], NULL);
+		zassert_not_null(block[i], NULL);
 	}
 	/* verify no more free blocks available*/
 	block_fail = k_malloc(BLK_SIZE_MIN);
-	assert_is_null(block_fail, NULL);
+	zassert_is_null(block_fail, NULL);
 
 	/* test case tear down*/
 	for (int i = 0; i < BLK_NUM_MAX; i++) {
@@ -73,6 +87,14 @@ void test_mheap_min_block_size(void)
 	}
 }
 
+/**
+ * @brief Verify if the block descriptor is included
+ * in every block which is allocated
+ *
+ * @ingroup kernel_heap_tests
+ *
+ * @see k_malloc(), k_free()
+ */
 void test_mheap_block_desc(void)
 {
 	void *block[BLK_NUM_MAX], *block_fail;
@@ -81,7 +103,7 @@ void test_mheap_block_desc(void)
 	 * TESTPOINT: The kernel uses the first 16 bytes of any memory block
 	 * allocated from the heap memory pool to save the block descriptor
 	 * information it needs to later free the block. Consequently, an
-	 * application’s request for an N byte chunk of heap memory requires a
+	 * application's request for an N byte chunk of heap memory requires a
 	 * block that is at least (N+16) bytes long.
 	 * Test steps:
 	 * initial memory heap status (F for free, U for used):
@@ -91,11 +113,11 @@ void test_mheap_block_desc(void)
 	 */
 	for (int i = 0; i < BLK_NUM_MAX; i++) {
 		block[i] = k_malloc(BLK_SIZE_EXCLUDE_DESC);
-		assert_not_null(block[i], NULL);
+		zassert_not_null(block[i], NULL);
 	}
 	/* verify no more free blocks available*/
 	block_fail = k_malloc(BLK_SIZE_MIN);
-	assert_is_null(block_fail, NULL);
+	zassert_is_null(block_fail, NULL);
 
 	/* test case tear down*/
 	for (int i = 0; i < BLK_NUM_MAX; i++) {

@@ -6,8 +6,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __SPI_DW_QUARK_SE_SS_H__
-#define __SPI_DW_QUARK_SE_SS_H__
+#ifndef ZEPHYR_DRIVERS_SPI_SPI_DW_QUARK_SE_SS_REGS_H_
+#define ZEPHYR_DRIVERS_SPI_SPI_DW_QUARK_SE_SS_REGS_H_
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Registers:
  * Some registers have been collapsed into one
@@ -55,16 +59,28 @@
  * *_b function only used for creating proper ser one
  */
 DEFINE_MM_REG_READ(ctrlr0_b, DW_SPI_REG_CTRLR0, 16)
+static inline u32_t read_ctrlr0(u32_t addr)
+{
+	return read_ctrlr0_b(addr);
+}
+
 DEFINE_MM_REG_WRITE(ctrlr0_b, DW_SPI_REG_CTRLR0, 16)
-static inline void write_ctrlr0(uint32_t data, uint32_t addr)
+static inline void write_ctrlr0(u32_t data, u32_t addr)
 {
 	write_ctrlr0_b((read_ctrlr0_b(addr) & DW_SPI_CTRLR0_CLK_ENA_MASK) |
 								data, addr);
 }
 
+DEFINE_MM_REG_READ(ctrlr1_b, DW_SPI_REG_CTRLR0, 32)
+DEFINE_MM_REG_WRITE(ctrlr1_b, DW_SPI_REG_CTRLR0, 32)
+static inline void write_ctrlr1(u32_t data, u32_t addr)
+{
+	write_ctrlr1_b((read_ctrlr1_b(addr) & (data << 16)), addr);
+}
+
 DEFINE_MM_REG_READ(ssienr_b, DW_SPI_REG_SSIENR, 8)
 DEFINE_MM_REG_WRITE(ssienr_b, DW_SPI_REG_SSIENR, 8)
-static inline void write_ser(uint32_t data, uint32_t addr)
+static inline void write_ser(u32_t data, u32_t addr)
 {
 	write_ssienr_b((read_ssienr_b(addr) & (~DW_SPI_QSS_SER_MASK)) |
 					DW_SPI_QSS_SSIENR_SER(data), addr);
@@ -74,13 +90,13 @@ DEFINE_MM_REG_READ(rxftlr_b, DW_SPI_REG_RXFTLR, 32)
 DEFINE_MM_REG_WRITE(rxftlr_b, DW_SPI_REG_RXFTLR, 32)
 DEFINE_MM_REG_READ(rxftlr, DW_SPI_REG_RXFTLR, 16)
 
-static inline void write_rxftlr(uint32_t data, uint32_t addr)
+static inline void write_rxftlr(u32_t data, u32_t addr)
 {
 	write_rxftlr_b((read_rxftlr_b(addr) & (~DW_SPI_QSS_RXFTLR_MASK)) |
 								data, addr);
 }
 
-static inline void write_txftlr(uint32_t data, uint32_t addr)
+static inline void write_txftlr(u32_t data, u32_t addr)
 {
 	write_rxftlr_b((read_rxftlr_b(addr) & (~DW_SPI_QSS_TXFTLR_MASK)) |
 						DW_SPI_QSS_TXFTLR(data), addr);
@@ -88,7 +104,7 @@ static inline void write_txftlr(uint32_t data, uint32_t addr)
 
 /* Quark SE SS requires to clear up all interrupts */
 DEFINE_MM_REG_WRITE(icr, DW_SPI_REG_ICR, 8)
-static inline void clear_interrupts(uint32_t addr)
+static inline void clear_interrupts(u32_t addr)
 {
 	write_icr(0x1f, addr);
 }
@@ -100,12 +116,12 @@ static inline void clear_interrupts(uint32_t addr)
  */
 DEFINE_MM_REG_WRITE(dr_b, DW_SPI_REG_DR, 32)
 DEFINE_MM_REG_READ(dr_b, DW_SPI_REG_DR, 32)
-static inline void write_dr(uint32_t data, uint32_t addr)
+static inline void write_dr(u32_t data, u32_t addr)
 {
 	write_dr_b(data | DW_SPI_DR_WRITE, addr);
 }
 
-static inline uint32_t read_dr(uint32_t addr)
+static inline u32_t read_dr(u32_t addr)
 {
 	write_dr_b(DW_SPI_DR_READ, addr);
 	__asm__("nop\n");
@@ -116,20 +132,22 @@ static inline uint32_t read_dr(uint32_t addr)
 DEFINE_SET_BIT_OP(clk_ena, DW_SPI_REG_CTRLR0, DW_SPI_CTRLR0_CLK_ENA_BIT)
 DEFINE_CLEAR_BIT_OP(clk_ena, DW_SPI_REG_CTRLR0, DW_SPI_CTRLR0_CLK_ENA_BIT)
 
-#define _clock_config(...)
-
-static inline void _clock_on(struct device *dev)
+static inline void _extra_clock_on(struct device *dev)
 {
 	const struct spi_dw_config *info = dev->config->config_info;
 
 	set_bit_clk_ena(info->regs);
 }
 
-static inline void _clock_off(struct device *dev)
+static inline void _extra_clock_off(struct device *dev)
 {
 	const struct spi_dw_config *info = dev->config->config_info;
 
 	clear_bit_clk_ena(info->regs);
 }
 
-#endif /* __SPI_DW_QUARK_SE_SS_H__ */
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* ZEPHYR_DRIVERS_SPI_SPI_DW_QUARK_SE_SS_REGS_H_ */

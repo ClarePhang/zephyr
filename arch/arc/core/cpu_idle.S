@@ -14,15 +14,15 @@
 #include <kernel_structs.h>
 #include <offsets_short.h>
 #include <toolchain.h>
-#include <sections.h>
+#include <linker/sections.h>
 #include <arch/cpu.h>
 
 GTEXT(k_cpu_idle)
 GTEXT(k_cpu_atomic_idle)
 GDATA(k_cpu_sleep_mode)
 
-	.balign 4
 SECTION_VAR(BSS, k_cpu_sleep_mode)
+	.balign 4
 	.word 0
 
 /*
@@ -35,9 +35,9 @@ SECTION_VAR(BSS, k_cpu_sleep_mode)
 
 SECTION_FUNC(TEXT, k_cpu_idle)
 
-#ifdef CONFIG_KERNEL_EVENT_LOGGER_SLEEP
+#ifdef CONFIG_TRACING
 	push_s blink
-	jl    _sys_k_event_logger_enter_sleep
+	jl    z_sys_trace_idle
 	pop_s blink
 #endif
 
@@ -56,9 +56,9 @@ SECTION_FUNC(TEXT, k_cpu_idle)
  */
 SECTION_FUNC(TEXT, k_cpu_atomic_idle)
 
-#ifdef CONFIG_KERNEL_EVENT_LOGGER_SLEEP
+#ifdef CONFIG_TRACING
 	push_s blink
-	jl    _sys_k_event_logger_enter_sleep
+	jl    z_sys_trace_idle
 	pop_s blink
 #endif
 

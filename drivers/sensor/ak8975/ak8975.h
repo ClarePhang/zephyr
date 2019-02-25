@@ -4,14 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef __SENSOR_AK8975__
-#define __SENSOR_AK8975__
+#ifndef ZEPHYR_DRIVERS_SENSOR_AK8975_AK8975_H_
+#define ZEPHYR_DRIVERS_SENSOR_AK8975_AK8975_H_
 
 #include <device.h>
-
-#define SYS_LOG_DOMAIN "AK8975"
-#define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
-#include <logging/sys_log.h>
 
 #define AK8975_REG_CHIP_ID		0x00
 #define AK8975_CHIP_ID			0x48
@@ -50,13 +46,13 @@
 struct ak8975_data {
 	struct device *i2c;
 
-	int16_t x_sample;
-	int16_t y_sample;
-	int16_t z_sample;
+	s16_t x_sample;
+	s16_t y_sample;
+	s16_t z_sample;
 
-	uint8_t x_adj;
-	uint8_t y_adj;
-	uint8_t z_adj;
+	u8_t x_adj;
+	u8_t y_adj;
+	u8_t z_adj;
 };
 
-#endif /* __SENSOR_AK8975__ */
+#endif /* ZEPHYR_DRIVERS_SENSOR_AK8975_AK8975_H_ */

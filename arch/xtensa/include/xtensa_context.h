@@ -16,8 +16,8 @@
  * NOTE: The Xtensa architecture requires stack pointer alignment to 16 bytes.
  */
 
-#ifndef XTENSA_CONTEXT_H
-#define XTENSA_CONTEXT_H
+#ifndef ZEPHYR_ARCH_XTENSA_INCLUDE_XTENSA_CONTEXT_H_
+#define ZEPHYR_ARCH_XTENSA_INCLUDE_XTENSA_CONTEXT_H_
 
 #ifdef __ASSEMBLER__
 #include    <xtensa/coreasm.h>
@@ -233,6 +233,8 @@ STRUCT_END(XtSolFrame)
  * that requires alignment greater than 16 bytes (ABI stack alignment).
  */
 
+#define XT_CP_DESCR_SIZE 12
+
 #if XCHAL_CP_NUM > 0
 
 /*  Offsets of each coprocessor save area within the 'aligned save area':  */
@@ -261,7 +263,8 @@ STRUCT_END(XtSolFrame)
 #define XT_CP_ASA   8
 
 /* Overall size allows for dynamic alignment:  */
-#define XT_CP_SIZE  ALIGNUP(XCHAL_TOTAL_SA_ALIGN, 12 + XT_CP_SA_SIZE)
+#define XT_CP_SIZE ALIGNUP(XCHAL_TOTAL_SA_ALIGN, \
+	XT_CP_DESCR_SIZE + XT_CP_SA_SIZE)
 #else
 #define XT_CP_SIZE  0
 #endif
@@ -310,5 +313,5 @@ ret
 #endif /* __ASSEMBLER__ */
 
 
-#endif /* XTENSA_CONTEXT_H */
+#endif /* ZEPHYR_ARCH_XTENSA_INCLUDE_XTENSA_CONTEXT_H_ */
 

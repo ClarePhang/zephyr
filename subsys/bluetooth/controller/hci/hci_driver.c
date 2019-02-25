@@ -14,27 +14,37 @@
 #include <init.h>
 #include <device.h>
 #include <clock_control.h>
+#include <atomic.h>
 
 #include <misc/util.h>
 #include <misc/stack.h>
 #include <misc/byteorder.h>
 
-#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BLUETOOTH_DEBUG_HCI_DRIVER)
-#include <bluetooth/log.h>
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/hci.h>
 #include <drivers/bluetooth/hci_driver.h>
 
-#ifdef CONFIG_CLOCK_CONTROL_NRF5
-#include <drivers/clock_control/nrf5_clock_control.h>
+#ifdef CONFIG_CLOCK_CONTROL_NRF
+#include <drivers/clock_control/nrf_clock_control.h>
 #endif
 
+#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_HCI_DRIVER)
+#define LOG_MODULE_NAME bt_ctlr_hci_driver
+#include "common/log.h"
+
 #include "util/util.h"
+#include "util/memq.h"
+
 #include "hal/ccm.h"
+
+#if defined(CONFIG_SOC_FAMILY_NRF)
 #include "hal/radio.h"
+#endif /* CONFIG_SOC_FAMILY_NRF */
+
 #include "ll_sw/pdu.h"
-#include "ll_sw/ctrl.h"
+#include "ll_sw/lll.h"
 #include "ll.h"
+
 #include "hci_internal.h"
 
 #include "hal/debug.h"
@@ -42,86 +52,305 @@
 static K_SEM_DEFINE(sem_prio_recv, 0, UINT_MAX);
 static K_FIFO_DEFINE(recv_fifo);
 
-static BT_STACK_NOINIT(prio_recv_thread_stack,
-		       CONFIG_BLUETOOTH_CONTROLLER_RX_PRIO_STACK_SIZE);
-static BT_STACK_NOINIT(recv_thread_stack, CONFIG_BLUETOOTH_RX_STACK_SIZE);
+struct k_thread prio_recv_thread_data;
+static K_THREAD_STACK_DEFINE(prio_recv_thread_stack,
+			     CONFIG_BT_CTLR_RX_PRIO_STACK_SIZE);
+struct k_thread recv_thread_data;
+static K_THREAD_STACK_DEFINE(recv_thread_stack, CONFIG_BT_RX_STACK_SIZE);
 
+#if defined(CONFIG_INIT_STACKS)
+static u32_t prio_ts;
+static u32_t rx_ts;
+#endif
+
+#if defined(CONFIG_BT_HCI_ACL_FLOW_CONTROL)
+static struct k_poll_signal hbuf_signal =
+		K_POLL_SIGNAL_INITIALIZER(hbuf_signal);
+static sys_slist_t hbuf_pend;
+static s32_t hbuf_count;
+#endif
+
+/**
+ * @brief Pull from memq_ll_rx and push up to Host thread recv_thread()
+ *   via recv_fifo
+ * @details Execution context: Controller thread
+ */
 static void prio_recv_thread(void *p1, void *p2, void *p3)
 {
 	while (1) {
-		struct radio_pdu_node_rx *node_rx;
-		struct net_buf *buf;
-		uint8_t num_cmplt;
-		uint16_t handle;
+		void *node_rx;
+		u8_t num_cmplt;
+		u16_t handle;
 
-		while ((num_cmplt = radio_rx_get(&node_rx, &handle))) {
+		/* While there are completed rx nodes */
+		while ((num_cmplt = ll_rx_get(&node_rx, &handle))) {
+#if defined(CONFIG_BT_CONN)
+			struct net_buf *buf;
 
-			buf = bt_buf_get_rx(K_FOREVER);
-			bt_buf_set_type(buf, BT_BUF_EVT);
+			buf = bt_buf_get_rx(BT_BUF_EVT, K_FOREVER);
 			hci_num_cmplt_encode(buf, handle, num_cmplt);
 			BT_DBG("Num Complete: 0x%04x:%u", handle, num_cmplt);
 			bt_recv_prio(buf);
-
 			k_yield();
+#endif
 		}
 
 		if (node_rx) {
+			/* Until now we've only peeked, now we really do
+			 * the handover
+			 */
+			ll_rx_dequeue();
 
-			radio_rx_dequeue();
-
+			/* Send the rx node up to Host thread, recv_thread() */
 			BT_DBG("RX node enqueue");
 			k_fifo_put(&recv_fifo, node_rx);
 
+			/* There may still be completed nodes, continue
+			 * pushing all those up to Host before waiting for
+			 * ULL mayfly
+			 */
 			continue;
 		}
 
 		BT_DBG("sem take...");
+		/* Wait until ULL mayfly has something to give us.
+		 * Blocking-take of the semaphore; we take it once ULL mayfly
+		 * has let it go in ll_rx_sched().
+		 */
 		k_sem_take(&sem_prio_recv, K_FOREVER);
+		/* Now, ULL mayfly has something to give to us */
 		BT_DBG("sem taken");
 
-		stack_analyze("prio recv thread stack", prio_recv_thread_stack,
-			      sizeof(prio_recv_thread_stack));
+#if defined(CONFIG_INIT_STACKS)
+		if (k_uptime_get_32() - prio_ts > K_SECONDS(5)) {
+			STACK_ANALYZE("prio recv thread stack",
+				      prio_recv_thread_stack);
+			prio_ts = k_uptime_get_32();
+		}
+#endif
 	}
 }
 
-static void recv_thread(void *p1, void *p2, void *p3)
+static inline struct net_buf *encode_node(struct node_rx_pdu *node_rx,
+					  s8_t class)
 {
-	while (1) {
-		struct radio_pdu_node_rx *node_rx;
-		struct pdu_data *pdu_data;
-		struct net_buf *buf;
+	struct net_buf *buf = NULL;
 
-		BT_DBG("RX node get");
-		node_rx = k_fifo_get(&recv_fifo, K_FOREVER);
-		BT_DBG("RX node dequeued");
-
-		pdu_data = (void *)node_rx->pdu_data;
-		/* Check if we need to generate an HCI event or ACL
-		 * data
-		 */
-		if (node_rx->hdr.type != NODE_RX_TYPE_DC_PDU ||
-		    pdu_data->ll_id == PDU_DATA_LLID_CTRL) {
-			/* generate a (non-priority) HCI event */
-			if (hci_evt_is_discardable(node_rx)) {
-				buf = bt_buf_get_rx(K_NO_WAIT);
-			} else {
-				buf = bt_buf_get_rx(K_FOREVER);
-			}
-
-			if (buf) {
-				bt_buf_set_type(buf, BT_BUF_EVT);
-				hci_evt_encode(node_rx, buf);
-			}
+	/* Check if we need to generate an HCI event or ACL data */
+	switch (class) {
+	case HCI_CLASS_EVT_DISCARDABLE:
+	case HCI_CLASS_EVT_REQUIRED:
+	case HCI_CLASS_EVT_CONNECTION:
+		if (class == HCI_CLASS_EVT_DISCARDABLE) {
+			buf = bt_buf_get_rx(BT_BUF_EVT, K_NO_WAIT);
 		} else {
-			/* generate ACL data */
-			buf = bt_buf_get_rx(K_FOREVER);
-			bt_buf_set_type(buf, BT_BUF_ACL_IN);
-			hci_acl_encode(node_rx, buf);
+			buf = bt_buf_get_rx(BT_BUF_EVT, K_FOREVER);
 		}
+		if (buf) {
+			hci_evt_encode(node_rx, buf);
+		}
+		break;
+#if defined(CONFIG_BT_CONN)
+	case HCI_CLASS_ACL_DATA:
+		/* generate ACL data */
+		buf = bt_buf_get_rx(BT_BUF_ACL_IN, K_FOREVER);
+		hci_acl_encode(node_rx, buf);
+		break;
+#endif
+	default:
+		LL_ASSERT(0);
+		break;
+	}
+
+#if defined(CONFIG_BT_LL_SW)
+	{
+		extern u8_t radio_rx_fc_set(u16_t handle, u8_t fc);
 
 		radio_rx_fc_set(node_rx->hdr.handle, 0);
-		node_rx->hdr.onion.next = 0;
-		radio_rx_mem_release(&node_rx);
+	}
+#endif /* CONFIG_BT_LL_SW */
+
+	node_rx->hdr.next = NULL;
+	ll_rx_mem_release((void **)&node_rx);
+
+	return buf;
+}
+
+static inline struct net_buf *process_node(struct node_rx_pdu *node_rx)
+{
+	s8_t class = hci_get_class(node_rx);
+	struct net_buf *buf = NULL;
+
+#if defined(CONFIG_BT_HCI_ACL_FLOW_CONTROL)
+	if (hbuf_count != -1) {
+		bool pend = !sys_slist_is_empty(&hbuf_pend);
+
+		/* controller to host flow control enabled */
+		switch (class) {
+		case HCI_CLASS_EVT_DISCARDABLE:
+		case HCI_CLASS_EVT_REQUIRED:
+			break;
+		case HCI_CLASS_EVT_CONNECTION:
+			/* for conn-related events, only pend is relevant */
+			hbuf_count = 1;
+			/* fallthrough */
+		case HCI_CLASS_ACL_DATA:
+			if (pend || !hbuf_count) {
+				sys_slist_append(&hbuf_pend, (void *)node_rx);
+				BT_DBG("FC: Queuing item: %d", class);
+				return NULL;
+			}
+			break;
+		default:
+			LL_ASSERT(0);
+			break;
+		}
+	}
+#endif
+
+	/* process regular node from radio */
+	buf = encode_node(node_rx, class);
+
+	return buf;
+}
+
+#if defined(CONFIG_BT_HCI_ACL_FLOW_CONTROL)
+static inline struct net_buf *process_hbuf(struct node_rx_pdu *n)
+{
+	/* shadow total count in case of preemption */
+	struct node_rx_pdu *node_rx = NULL;
+	s32_t hbuf_total = hci_hbuf_total;
+	struct net_buf *buf = NULL;
+	s8_t class;
+	int reset;
+
+	reset = atomic_test_and_clear_bit(&hci_state_mask, HCI_STATE_BIT_RESET);
+	if (reset) {
+		/* flush queue, no need to free, the LL has already done it */
+		sys_slist_init(&hbuf_pend);
+	}
+
+	if (hbuf_total <= 0) {
+		hbuf_count = -1;
+		return NULL;
+	}
+
+	/* available host buffers */
+	hbuf_count = hbuf_total - (hci_hbuf_sent - hci_hbuf_acked);
+
+	/* host acked ACL packets, try to dequeue from hbuf */
+	node_rx = (void *)sys_slist_peek_head(&hbuf_pend);
+	if (!node_rx) {
+		return NULL;
+	}
+
+	/* Return early if this iteration already has a node to process */
+	class = hci_get_class(node_rx);
+	if (n) {
+		if (class == HCI_CLASS_EVT_CONNECTION ||
+		    (class == HCI_CLASS_ACL_DATA && hbuf_count)) {
+			/* node to process later, schedule an iteration */
+			BT_DBG("FC: signalling");
+			k_poll_signal_raise(&hbuf_signal, 0x0);
+		}
+		return NULL;
+	}
+
+	switch (class) {
+	case HCI_CLASS_EVT_CONNECTION:
+		BT_DBG("FC: dequeueing event");
+		(void) sys_slist_get(&hbuf_pend);
+		break;
+	case HCI_CLASS_ACL_DATA:
+		if (hbuf_count) {
+			BT_DBG("FC: dequeueing ACL data");
+			(void) sys_slist_get(&hbuf_pend);
+		} else {
+			/* no buffers, HCI will signal */
+			node_rx = NULL;
+		}
+		break;
+	case HCI_CLASS_EVT_DISCARDABLE:
+	case HCI_CLASS_EVT_REQUIRED:
+	default:
+		LL_ASSERT(0);
+		break;
+	}
+
+	if (node_rx) {
+		buf = encode_node(node_rx, class);
+		/* Update host buffers after encoding */
+		hbuf_count = hbuf_total - (hci_hbuf_sent - hci_hbuf_acked);
+		/* next node */
+		node_rx = (void *)sys_slist_peek_head(&hbuf_pend);
+		if (node_rx) {
+			class = hci_get_class(node_rx);
+
+			if (class == HCI_CLASS_EVT_CONNECTION ||
+			    (class == HCI_CLASS_ACL_DATA && hbuf_count)) {
+				/* more to process, schedule an
+				 * iteration
+				 */
+				BT_DBG("FC: signalling");
+				k_poll_signal_raise(&hbuf_signal, 0x0);
+			}
+		}
+	}
+
+	return buf;
+}
+#endif
+
+/**
+ * @brief Blockingly pull from Controller thread's recv_fifo
+ * @details Execution context: Host thread
+ */
+static void recv_thread(void *p1, void *p2, void *p3)
+{
+#if defined(CONFIG_BT_HCI_ACL_FLOW_CONTROL)
+	/* @todo: check if the events structure really needs to be static */
+	static struct k_poll_event events[2] = {
+		K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_SIGNAL,
+						K_POLL_MODE_NOTIFY_ONLY,
+						&hbuf_signal, 0),
+		K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_FIFO_DATA_AVAILABLE,
+						K_POLL_MODE_NOTIFY_ONLY,
+						&recv_fifo, 0),
+	};
+#endif
+
+	while (1) {
+		struct node_rx_pdu *node_rx = NULL;
+		struct net_buf *buf = NULL;
+
+		BT_DBG("blocking");
+#if defined(CONFIG_BT_HCI_ACL_FLOW_CONTROL)
+		int err;
+
+		err = k_poll(events, 2, K_FOREVER);
+		LL_ASSERT(err == 0);
+		if (events[0].state == K_POLL_STATE_SIGNALED) {
+			events[0].signal->signaled = 0;
+		} else if (events[1].state ==
+			   K_POLL_STATE_FIFO_DATA_AVAILABLE) {
+			node_rx = k_fifo_get(events[1].fifo, 0);
+		}
+
+		events[0].state = K_POLL_STATE_NOT_READY;
+		events[1].state = K_POLL_STATE_NOT_READY;
+
+		/* process host buffers first if any */
+		buf = process_hbuf(node_rx);
+
+#else
+		node_rx = k_fifo_get(&recv_fifo, K_FOREVER);
+#endif
+		BT_DBG("unblocked");
+
+		if (node_rx && !buf) {
+			/* process regular node from radio */
+			buf = process_node(node_rx);
+		}
 
 		if (buf) {
 			if (buf->len) {
@@ -135,29 +364,53 @@ static void recv_thread(void *p1, void *p2, void *p3)
 
 		k_yield();
 
-		stack_analyze("recv thread stack", recv_thread_stack,
-			      sizeof(recv_thread_stack));
+#if defined(CONFIG_INIT_STACKS)
+		if (k_uptime_get_32() - rx_ts > K_SECONDS(5)) {
+			STACK_ANALYZE("recv thread stack", recv_thread_stack);
+			rx_ts = k_uptime_get_32();
+		}
+#endif
 	}
 }
 
 static int cmd_handle(struct net_buf *buf)
 {
+	void *node_rx = NULL;
 	struct net_buf *evt;
 
-	evt = hci_cmd_handle(buf);
-	if (!evt) {
-		return -EINVAL;
-	}
+	evt = hci_cmd_handle(buf, &node_rx);
+	if (evt) {
+		BT_DBG("Replying with event of %u bytes", evt->len);
+		bt_recv_prio(evt);
 
-	BT_DBG("Replying with event of %u bytes", evt->len);
-	bt_recv_prio(evt);
+		if (node_rx) {
+			BT_DBG("RX node enqueue");
+			k_fifo_put(&recv_fifo, node_rx);
+		}
+	}
 
 	return 0;
 }
 
+#if defined(CONFIG_BT_CONN)
+static int acl_handle(struct net_buf *buf)
+{
+	struct net_buf *evt;
+	int err;
+
+	err = hci_acl_handle(buf, &evt);
+	if (evt) {
+		BT_DBG("Replying with event of %u bytes", evt->len);
+		bt_recv_prio(evt);
+	}
+
+	return err;
+}
+#endif /* CONFIG_BT_CONN */
+
 static int hci_driver_send(struct net_buf *buf)
 {
-	uint8_t type;
+	u8_t type;
 	int err;
 
 	BT_DBG("enter");
@@ -169,9 +422,11 @@ static int hci_driver_send(struct net_buf *buf)
 
 	type = bt_buf_get_type(buf);
 	switch (type) {
+#if defined(CONFIG_BT_CONN)
 	case BT_BUF_ACL_OUT:
-		err = hci_acl_handle(buf);
+		err = acl_handle(buf);
 		break;
+#endif /* CONFIG_BT_CONN */
 	case BT_BUF_CMD:
 		err = cmd_handle(buf);
 		break;
@@ -191,24 +446,33 @@ static int hci_driver_send(struct net_buf *buf)
 
 static int hci_driver_open(void)
 {
-	uint32_t err;
+	u32_t err;
 
 	DEBUG_INIT();
 
 	err = ll_init(&sem_prio_recv);
-
 	if (err) {
 		BT_ERR("LL initialization failed: %u", err);
 		return err;
 	}
 
-	k_thread_spawn(prio_recv_thread_stack, sizeof(prio_recv_thread_stack),
-		       prio_recv_thread, NULL, NULL, NULL, K_PRIO_COOP(6), 0,
-		       K_NO_WAIT);
+#if defined(CONFIG_BT_HCI_ACL_FLOW_CONTROL)
+	hci_init(&hbuf_signal);
+#else
+	hci_init(NULL);
+#endif
 
-	k_thread_spawn(recv_thread_stack, sizeof(recv_thread_stack),
-		       recv_thread, NULL, NULL, NULL, K_PRIO_COOP(7), 0,
-		       K_NO_WAIT);
+	k_thread_create(&prio_recv_thread_data, prio_recv_thread_stack,
+			K_THREAD_STACK_SIZEOF(prio_recv_thread_stack),
+			prio_recv_thread, NULL, NULL, NULL,
+			K_PRIO_COOP(CONFIG_BT_CTLR_RX_PRIO), 0, K_NO_WAIT);
+	k_thread_name_set(&prio_recv_thread_data, "BT RX pri");
+
+	k_thread_create(&recv_thread_data, recv_thread_stack,
+			K_THREAD_STACK_SIZEOF(recv_thread_stack),
+			recv_thread, NULL, NULL, NULL,
+			K_PRIO_COOP(CONFIG_BT_RX_PRIO), 0, K_NO_WAIT);
+	k_thread_name_set(&recv_thread_data, "BT RX");
 
 	BT_DBG("Success.");
 

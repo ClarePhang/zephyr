@@ -34,6 +34,7 @@ void fifo_test_init(void)
  *
  * @param par1   Ignored parameter.
  * @param par2   Number of test loops.
+ * @param par3	 unused
  *
  * @return N/A
  */
@@ -66,6 +67,7 @@ void fifo_thread1(void *par1, void *par2, void *par3)
  *
  * @param par1   Address of the counter.
  * @param par2   Number of test cycles.
+ * @param par3   unused
  *
  * @return N/A
  */
@@ -100,6 +102,7 @@ void fifo_thread2(void *par1, void *par2, void *par3)
  *
  * @param par1   Address of the counter.
  * @param par2   Number of test cycles.
+ * @param par3   unused
  *
  * @return N/A
  */
@@ -138,7 +141,7 @@ void fifo_thread3(void *par1, void *par2, void *par3)
  */
 int fifo_test(void)
 {
-	uint32_t t;
+	u32_t t;
 	int i = 0;
 	int return_value = 0;
 	int element[2];
@@ -159,11 +162,11 @@ int fifo_test(void)
 
 	t = BENCH_START();
 
-	k_thread_spawn(thread_stack1, STACK_SIZE, fifo_thread1,
-			 NULL, (void *) NUMBER_OF_LOOPS, NULL,
+	k_thread_create(&thread_data1, thread_stack1, STACK_SIZE, fifo_thread1,
+			 NULL, (void *) number_of_loops, NULL,
 			 K_PRIO_COOP(3), 0, K_NO_WAIT);
-	k_thread_spawn(thread_stack2, STACK_SIZE, fifo_thread2,
-			 (void *) &i, (void *) NUMBER_OF_LOOPS, NULL,
+	k_thread_create(&thread_data2, thread_stack2, STACK_SIZE, fifo_thread2,
+			 (void *) &i, (void *) number_of_loops, NULL,
 			 K_PRIO_COOP(3), 0, K_NO_WAIT);
 
 	t = TIME_STAMP_DELTA_GET(t);
@@ -191,11 +194,11 @@ int fifo_test(void)
 	t = BENCH_START();
 
 	i = 0;
-	k_thread_spawn(thread_stack1, STACK_SIZE, fifo_thread1,
-			 NULL, (void *) NUMBER_OF_LOOPS, NULL,
+	k_thread_create(&thread_data1, thread_stack1, STACK_SIZE, fifo_thread1,
+			 NULL, (void *) number_of_loops, NULL,
 			 K_PRIO_COOP(3), 0, K_NO_WAIT);
-	k_thread_spawn(thread_stack2, STACK_SIZE, fifo_thread3,
-			 (void *) &i, (void *) NUMBER_OF_LOOPS, NULL,
+	k_thread_create(&thread_data2, thread_stack2, STACK_SIZE, fifo_thread3,
+			 (void *) &i, (void *) number_of_loops, NULL,
 			 K_PRIO_COOP(3), 0, K_NO_WAIT);
 
 	t = TIME_STAMP_DELTA_GET(t);
@@ -222,13 +225,13 @@ int fifo_test(void)
 
 	t = BENCH_START();
 
-	k_thread_spawn(thread_stack1, STACK_SIZE, fifo_thread1,
-			 NULL, (void *) (NUMBER_OF_LOOPS / 2), NULL,
+	k_thread_create(&thread_data1, thread_stack1, STACK_SIZE, fifo_thread1,
+			 NULL, (void *) (number_of_loops / 2), NULL,
 			 K_PRIO_COOP(3), 0, K_NO_WAIT);
-	k_thread_spawn(thread_stack2, STACK_SIZE, fifo_thread1,
-			 NULL, (void *) (NUMBER_OF_LOOPS / 2), NULL,
+	k_thread_create(&thread_data2, thread_stack2, STACK_SIZE, fifo_thread1,
+			 NULL, (void *) (number_of_loops / 2), NULL,
 			 K_PRIO_COOP(3), 0, K_NO_WAIT);
-	for (i = 0; i < NUMBER_OF_LOOPS / 2; i++) {
+	for (i = 0; i < number_of_loops / 2; i++) {
 		int element[2];
 		int *pelement;
 

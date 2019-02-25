@@ -16,11 +16,9 @@
 #include <kernel.h>
 #include <arch/cpu.h>
 #include <toolchain.h>
-#include <sections.h>
+#include <linker/sections.h>
 #include <device.h>
 #include <init.h>
-
-#include <board.h>
 
 /* programmable interrupt controller info (pair of cascaded 8259A devices) */
 #define PIC_MASTER_BASE_ADRS 0x20

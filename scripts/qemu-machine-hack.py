@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import sys
 
 # For some baffling reason IAMCU sets the instruction set architecture
@@ -8,4 +10,3 @@ fd.seek(0x12)
 # Write 0x03 which is EM_386 to e_machine
 fd.write(b'\x03')
 fd.close()
-

@@ -17,7 +17,9 @@
 #include <irq.h>
 #include <misc/printk.h>
 #include <sw_isr_table.h>
-#include <logging/kernel_event_logger.h>
+#include <ksched.h>
+#include <kswap.h>
+#include <tracing.h>
 
 void _irq_spurious(void *unused)
 {
@@ -30,8 +32,8 @@ void _irq_spurious(void *unused)
 
 void _arch_irq_enable(unsigned int irq)
 {
-	uint32_t ienable;
-	int key;
+	u32_t ienable;
+	unsigned int key;
 
 	key = irq_lock();
 
@@ -46,8 +48,8 @@ void _arch_irq_enable(unsigned int irq)
 
 void _arch_irq_disable(unsigned int irq)
 {
-	uint32_t ienable;
-	int key;
+	u32_t ienable;
+	unsigned int key;
 
 	key = irq_lock();
 
@@ -66,9 +68,14 @@ void _arch_irq_disable(unsigned int irq)
  *
  * @param ipending Bitfield of interrupts
  */
-void _enter_irq(uint32_t ipending)
+void _enter_irq(u32_t ipending)
 {
 	int index;
+
+#ifdef CONFIG_EXECUTION_BENCHMARKING
+	extern void read_timer_start_of_isr(void);
+	read_timer_start_of_isr();
+#endif
 
 	_kernel.nested++;
 
@@ -79,17 +86,36 @@ void _enter_irq(uint32_t ipending)
 	while (ipending) {
 		struct _isr_table_entry *ite;
 
-#ifdef CONFIG_KERNEL_EVENT_LOGGER_INTERRUPT
-		_sys_k_event_logger_interrupt();
-#endif
+		z_sys_trace_isr_enter();
 
 		index = find_lsb_set(ipending) - 1;
 		ipending &= ~(1 << index);
 
 		ite = &_sw_isr_table[index];
+
+#ifdef CONFIG_EXECUTION_BENCHMARKING
+		extern void read_timer_end_of_isr(void);
+		read_timer_end_of_isr();
+#endif
 		ite->isr(ite->arg);
+		sys_trace_isr_exit();
 	}
 
 	_kernel.nested--;
+#ifdef CONFIG_STACK_SENTINEL
+	_check_stack_sentinel();
+#endif
 }
 
+#ifdef CONFIG_DYNAMIC_INTERRUPTS
+int _arch_irq_connect_dynamic(unsigned int irq, unsigned int priority,
+			      void (*routine)(void *parameter), void *parameter,
+			      u32_t flags)
+{
+	ARG_UNUSED(flags);
+	ARG_UNUSED(priority);
+
+	z_isr_install(irq, routine, parameter);
+	return irq;
+}
+#endif /* CONFIG_DYNAMIC_INTERRUPTS */
